@@ -27,7 +27,7 @@ jobs:
       - name: Extract Android project
         run: |
           mkdir -p extracted
-          unzip -q HABIB_WEALTH_Accounts_Transactions_v2.zip -d extracted
+          unzip -q HABIB_WEALTH_Accounts_Transactions_v3_family_fixed.zip -d extracted
 
       - name: Patch Kotlin 2 Compose configuration
         run: python3 tools/patch_compose_gradle.py extracted/HABIB_WEALTH
