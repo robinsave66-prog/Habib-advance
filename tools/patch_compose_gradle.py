@@ -32,9 +32,12 @@ print("Compose/Kotlin 2.0 Gradle configuration patched successfully.")
 # readable, syntactically valid equivalent before compiling.
 main = root / "app/src/main/java/com/habib/wealth/MainActivity.kt"
 source = main.read_text()
+before = source
 source = source.replace(
     'floatingActionButton={if(tab>0)FloatingActionButton(onClick={if(tab==1)accountDialog=true else{edit=null;txDialog=true},containerColor=gold){Icon(Icons.Default.Add,null)}}){pad->',
     'floatingActionButton={if(tab>0) FloatingActionButton(onClick={if(tab==1) accountDialog=true else {edit=null;txDialog=true}},containerColor=gold){Icon(Icons.Default.Add,null)}}) { pad ->'
 )
+if source == before:
+    raise SystemExit("Expected malformed FAB source was not found; refusing to build an unpatched file.")
 main.write_text(source)
-print("MainActivity syntax correction applied.")
+print("MainActivity syntax correction applied and verified.")
