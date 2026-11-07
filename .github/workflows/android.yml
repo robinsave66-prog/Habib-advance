@@ -4,7 +4,7 @@ name: Build HABIB WEALTH APK
 on:
   workflow_dispatch:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "fix/**" ]
 
 jobs:
   build:
@@ -28,6 +28,9 @@ jobs:
         run: |
           mkdir -p extracted
           unzip -q HABIB_WEALTH_Accounts_Transactions_v2.zip -d extracted
+
+      - name: Patch Kotlin 2 Compose configuration
+        run: python3 tools/patch_compose_gradle.py extracted/HABIB_WEALTH
 
       - name: Build APK
         run: gradle -p extracted/HABIB_WEALTH :app:assembleDebug
