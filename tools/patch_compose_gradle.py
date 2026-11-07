@@ -26,3 +26,15 @@ assert 'org.jetbrains.kotlin.plugin.compose' in root_gradle.read_text()
 assert 'org.jetbrains.kotlin.plugin.compose' in app_gradle.read_text()
 assert 'kotlinCompilerExtensionVersion' not in app_gradle.read_text()
 print("Compose/Kotlin 2.0 Gradle configuration patched successfully.")
+
+
+# Replace the malformed compressed UI source in the milestone ZIP with a
+# readable, syntactically valid equivalent before compiling.
+main = root / "app/src/main/java/com/habib/wealth/MainActivity.kt"
+source = main.read_text()
+source = source.replace(
+    'floatingActionButton={if(tab>0)FloatingActionButton(onClick={if(tab==1)accountDialog=true else{edit=null;txDialog=true},containerColor=gold){Icon(Icons.Default.Add,null)}}){pad->',
+    'floatingActionButton={if(tab>0) FloatingActionButton(onClick={if(tab==1) accountDialog=true else {edit=null;txDialog=true}},containerColor=gold){Icon(Icons.Default.Add,null)}}) { pad ->'
+)
+main.write_text(source)
+print("MainActivity syntax correction applied.")
