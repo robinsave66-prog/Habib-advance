@@ -37,7 +37,10 @@ source = source.replace(
     'floatingActionButton={if(tab>0)FloatingActionButton(onClick={if(tab==1)accountDialog=true else{edit=null;txDialog=true},containerColor=gold){Icon(Icons.Default.Add,null)}}){pad->',
     'floatingActionButton={if(tab>0) FloatingActionButton(onClick={if(tab==1) accountDialog=true else {edit=null;txDialog=true}},containerColor=gold){Icon(Icons.Default.Add,null)}}) { pad ->'
 )
-if source == before:
-    raise SystemExit("Expected malformed FAB source was not found; refusing to build an unpatched file.")
-main.write_text(source)
-print("MainActivity syntax correction applied and verified.")
+if source != before:
+    main.write_text(source)
+    print("Legacy MainActivity syntax correction applied.")
+elif "floatingActionButton" in source:
+    print("No legacy malformed FAB pattern found; current MainActivity source retained.")
+else:
+    raise SystemExit("MainActivity FAB block is missing; refusing to build an incomplete source.")
