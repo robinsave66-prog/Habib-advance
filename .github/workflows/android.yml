@@ -27,7 +27,7 @@ jobs:
       - name: Extract Android project
         run: |
           mkdir -p extracted
-          unzip -q HABIB_WEALTH_Foundation_v1.zip -d extracted
+          unzip -q HABIB_WEALTH_Accounts_Transactions_v2.zip -d extracted
 
       - name: Build APK
         run: gradle -p extracted/HABIB_WEALTH :app:assembleDebug
