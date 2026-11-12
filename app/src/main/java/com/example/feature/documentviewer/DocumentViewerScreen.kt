@@ -1403,12 +1403,12 @@ private fun parseXlsxDocument(context: Context, uri: Uri, title: String, size: L
                     }
                     entry.name == "xl/workbook.xml" -> {
                         val xml = zip.bufferedReader().readText()
-                        val sheetRegex = Regex("""<sheet\\b[^>]*\\bname="([^"]+)"""")
+                        val sheetRegex = Regex("""<sheet\b[^>]*\bname="([^"]+)"""")
                         sheetRegex.findAll(xml).forEach {
                             sheetNames.add(decodeOfficeXmlText(it.groupValues[1]))
                         }
                     }
-                    Regex("""xl/worksheets/sheet\\d+\\.xml""").matches(entry.name) -> {
+                    Regex("""xl/worksheets/sheet\d+\.xml""").matches(entry.name) -> {
                         sheetDataMap[entry.name] = zip.bufferedReader().readText()
                     }
                 }
@@ -1419,7 +1419,7 @@ private fun parseXlsxDocument(context: Context, uri: Uri, title: String, size: L
     }
 
     fun attribute(attributes: String, name: String): String? {
-        val pattern = """(?:^|\\s)${Regex.escape(name)}\\s*=\\s*"([^"]*)""""
+        val pattern = """(?:^|\s)${Regex.escape(name)}\s*=\s*"([^"]*)""""
         return Regex(pattern).find(attributes)?.groupValues?.get(1)
     }
 
