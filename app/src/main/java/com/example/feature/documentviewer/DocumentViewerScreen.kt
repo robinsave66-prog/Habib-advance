@@ -3,6 +3,7 @@ package com.example.feature.documentviewer
 import android.content.Context
 import android.graphics.Color as AndroidColor
 import android.net.Uri
+import android.text.Html
 import android.provider.OpenableColumns
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -124,6 +125,8 @@ enum class DocumentFormatType {
     PPTX,
     LEGACY_PPT,
     TXT,
+    RTF,
+    HTML,
     IMAGE,
     UNSUPPORTED
 }
@@ -223,6 +226,8 @@ fun DocumentViewerScreen(
                     DocumentFormatType.PPTX -> parsePptxDocument(context, documentUri, resolvedName, size)
                     DocumentFormatType.LEGACY_PPT -> parseLegacyOfficeDocument(context, documentUri, resolvedName, size, DocumentFormatType.LEGACY_PPT)
                     DocumentFormatType.TXT -> parseTxtDocument(context, documentUri, resolvedName, size)
+                    DocumentFormatType.RTF -> parseRtfDocument(context, documentUri, resolvedName, size)
+                    DocumentFormatType.HTML -> parseHtmlDocument(context, documentUri, resolvedName, size)
                     DocumentFormatType.IMAGE -> ParsedDocumentContent(DocumentFormatType.IMAGE, resolvedName, size)
                     else -> ParsedDocumentContent(
                         format = DocumentFormatType.UNSUPPORTED,
@@ -274,7 +279,7 @@ fun DocumentViewerScreen(
                     },
                     actions = {
                         // Search Toggle for text-based formats
-                        if (formatType in listOf(DocumentFormatType.DOCX, DocumentFormatType.XLSX, DocumentFormatType.PPTX, DocumentFormatType.TXT)) {
+                        if (formatType in listOf(DocumentFormatType.DOCX, DocumentFormatType.XLSX, DocumentFormatType.PPTX, DocumentFormatType.TXT, DocumentFormatType.RTF, DocumentFormatType.HTML)) {
                             IconButton(
                                 onClick = {
                                     showSearchBar = !showSearchBar
@@ -427,7 +432,9 @@ fun DocumentViewerScreen(
                                 searchQuery = searchQuery
                             )
                         }
-                        DocumentFormatType.TXT -> {
+                        DocumentFormatType.TXT,
+                        DocumentFormatType.RTF,
+                        DocumentFormatType.HTML -> {
                             TxtContentViewer(
                                 text = content.rawText,
                                 lineCount = content.textLineCount,
@@ -1220,6 +1227,8 @@ private fun detectFormat(fileName: String, uri: Uri, context: Context): Document
     if (lower.endsWith(".xls")) return DocumentFormatType.LEGACY_XLS
     if (lower.endsWith(".pptx")) return DocumentFormatType.PPTX
     if (lower.endsWith(".ppt")) return DocumentFormatType.LEGACY_PPT
+    if (lower.endsWith(".rtf")) return DocumentFormatType.RTF
+    if (lower.endsWith(".html") || lower.endsWith(".htm")) return DocumentFormatType.HTML
     if (lower.endsWith(".txt") || lower.endsWith(".log") || lower.endsWith(".csv") || lower.endsWith(".md") || lower.endsWith(".json") || lower.endsWith(".xml")) return DocumentFormatType.TXT
     if (lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".png") || lower.endsWith(".webp")) return DocumentFormatType.IMAGE
 
@@ -1232,6 +1241,8 @@ private fun detectFormat(fileName: String, uri: Uri, context: Context): Document
     if (mime.contains("ms-excel")) return DocumentFormatType.LEGACY_XLS
     if (mime.contains("officedocument.presentationml")) return DocumentFormatType.PPTX
     if (mime.contains("ms-powerpoint")) return DocumentFormatType.LEGACY_PPT
+    if (mime.contains("rtf")) return DocumentFormatType.RTF
+    if (mime.contains("text/html")) return DocumentFormatType.HTML
     if (mime.contains("text/plain")) return DocumentFormatType.TXT
     if (mime.startsWith("image/")) return DocumentFormatType.IMAGE
 
@@ -1247,6 +1258,8 @@ private fun getFormatLabel(type: DocumentFormatType): String = when (type) {
     DocumentFormatType.PPTX -> "PowerPoint Presentation (.pptx)"
     DocumentFormatType.LEGACY_PPT -> "Legacy PowerPoint (.ppt)"
     DocumentFormatType.TXT -> "Plain Text Document"
+    DocumentFormatType.RTF -> "Rich Text Format (.rtf)"
+    DocumentFormatType.HTML -> "HTML Document (.html)"
     DocumentFormatType.IMAGE -> "Image Document"
     DocumentFormatType.UNSUPPORTED -> "Document File"
 }
@@ -1256,7 +1269,7 @@ private fun getFormatIcon(type: DocumentFormatType): ImageVector = when (type) {
     DocumentFormatType.DOCX, DocumentFormatType.LEGACY_DOC -> Icons.Default.Description
     DocumentFormatType.XLSX, DocumentFormatType.LEGACY_XLS -> Icons.Default.GridOn
     DocumentFormatType.PPTX, DocumentFormatType.LEGACY_PPT -> Icons.Default.Slideshow
-    DocumentFormatType.TXT -> Icons.Default.Description
+    DocumentFormatType.TXT, DocumentFormatType.RTF, DocumentFormatType.HTML -> Icons.Default.Description
     DocumentFormatType.IMAGE -> Icons.Default.Image
     DocumentFormatType.UNSUPPORTED -> Icons.Default.FileOpen
 }
@@ -1270,6 +1283,8 @@ private fun getFormatColor(type: DocumentFormatType): Color = when (type) {
     DocumentFormatType.PPTX -> Color(0xFFD84315)
     DocumentFormatType.LEGACY_PPT -> Color(0xFFBF360C)
     DocumentFormatType.TXT -> Color(0xFF546E7A)
+    DocumentFormatType.RTF -> Color(0xFF455A64)
+    DocumentFormatType.HTML -> Color(0xFFE65100)
     DocumentFormatType.IMAGE -> Color(0xFF8E24AA)
     DocumentFormatType.UNSUPPORTED -> Color(0xFF607D8B)
 }
@@ -1429,6 +1444,62 @@ private fun parseTxtDocument(context: Context, uri: Uri, title: String, size: Lo
 
     return ParsedDocumentContent(
         format = DocumentFormatType.TXT,
+        title = title,
+        fileSize = size,
+        rawText = text,
+        textLineCount = lines.size,
+        textWordCount = words.size,
+        textCharCount = text.length
+    )
+}
+
+private fun parseRtfDocument(context: Context, uri: Uri, title: String, size: Long): ParsedDocumentContent {
+    val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: ByteArray(0)
+    val source = decodeTextWithAutoCharset(bytes)
+    val plainText = source
+        .replace(Regex("""\\'[0-9a-fA-F]{2}"""), " ")
+        .replace(Regex("""\\u(-?\\d+)\\??""")) { match ->
+            val code = match.groupValues[1].toIntOrNull() ?: 32
+            String(Character.toChars(if (code < 0) code + 65536 else code))
+        }
+        .replace(Regex("""\\(par|line)\\b ?"""), "\\n")
+        .replace(Regex("""\\tab\\b ?"""), "\\t")
+        .replace(Regex("""\\[a-zA-Z]+-?\\d* ?"""), "")
+        .replace(Regex("""\\([\\\\{}])"""), "$1")
+        .replace(Regex("""\\[^a-zA-Z]"""), "")
+        .replace(Regex("[{}]"), "")
+        .replace(Regex("[ \\t]+\\n"), "\\n")
+        .trim()
+    return createPlainTextContent(DocumentFormatType.RTF, title, size, plainText)
+}
+
+private fun parseHtmlDocument(context: Context, uri: Uri, title: String, size: Long): ParsedDocumentContent {
+    val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: ByteArray(0)
+    val source = decodeTextWithAutoCharset(bytes)
+    val withoutHiddenBlocks = source
+        .replace(Regex("(?is)<(script|style|noscript)\\b[^>]*>.*?</\\\\1>"), " ")
+    val withLineBreaks = withoutHiddenBlocks
+        .replace(Regex("(?i)<\\\\s*br\\\\s*/?>"), "\\n")
+        .replace(Regex("(?i)</(p|div|h[1-6]|li|tr|section|article|blockquote)\\\\s*>"), "\\n")
+    val plainText = Html.fromHtml(withLineBreaks, Html.FROM_HTML_MODE_LEGACY)
+        .toString()
+        .replace('\\u00A0', ' ')
+        .replace(Regex("[ \\t]+\\n"), "\\n")
+        .replace(Regex("\\n{3,}"), "\\n\\n")
+        .trim()
+    return createPlainTextContent(DocumentFormatType.HTML, title, size, plainText)
+}
+
+private fun createPlainTextContent(
+    format: DocumentFormatType,
+    title: String,
+    size: Long,
+    text: String
+): ParsedDocumentContent {
+    val lines = text.split("\\n")
+    val words = text.split("\\s+".toRegex()).filter { it.isNotBlank() }
+    return ParsedDocumentContent(
+        format = format,
         title = title,
         fileSize = size,
         rawText = text,
