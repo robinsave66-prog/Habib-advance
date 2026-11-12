@@ -1458,17 +1458,17 @@ private fun parseRtfDocument(context: Context, uri: Uri, title: String, size: Lo
     val source = decodeTextWithAutoCharset(bytes)
     val plainText = source
         .replace(Regex("""\\'[0-9a-fA-F]{2}"""), " ")
-        .replace(Regex("""\\u(-?\\d+)\\??""")) { match ->
+        .replace(Regex("""\\u(-?\d+)\??""")) { match ->
             val code = match.groupValues[1].toIntOrNull() ?: 32
             String(Character.toChars(if (code < 0) code + 65536 else code))
         }
-        .replace(Regex("""\\(par|line)\\b ?"""), "\\n")
-        .replace(Regex("""\\tab\\b ?"""), "\\t")
-        .replace(Regex("""\\[a-zA-Z]+-?\\d* ?"""), "")
-        .replace(Regex("""\\([\\\\{}])"""), "$1")
+        .replace(Regex("""\\(par|line)\b ?"""), "\n")
+        .replace(Regex("""\\tab\b ?"""), "\t")
+        .replace(Regex("""\\[a-zA-Z]+-?\d* ?"""), "")
+        .replace(Regex("""\\([\\{}])"""), "$1")
         .replace(Regex("""\\[^a-zA-Z]"""), "")
         .replace(Regex("[{}]"), "")
-        .replace(Regex("[ \\t]+\\n"), "\\n")
+        .replace(Regex("""[ \t]+\n"""), "\n")
         .trim()
     return createPlainTextContent(DocumentFormatType.RTF, title, size, plainText)
 }
@@ -1477,15 +1477,15 @@ private fun parseHtmlDocument(context: Context, uri: Uri, title: String, size: L
     val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: ByteArray(0)
     val source = decodeTextWithAutoCharset(bytes)
     val withoutHiddenBlocks = source
-        .replace(Regex("(?is)<(script|style|noscript)\\b[^>]*>.*?</\\\\1>"), " ")
+        .replace(Regex("""(?is)<(script|style|noscript)\b[^>]*>.*?</\1>"""), " ")
     val withLineBreaks = withoutHiddenBlocks
-        .replace(Regex("(?i)<\\\\s*br\\\\s*/?>"), "\\n")
-        .replace(Regex("(?i)</(p|div|h[1-6]|li|tr|section|article|blockquote)\\\\s*>"), "\\n")
+        .replace(Regex("""(?i)<\s*br\s*/?>"""), "\n")
+        .replace(Regex("""(?i)</(p|div|h[1-6]|li|tr|section|article|blockquote)\s*>"""), "\n")
     val plainText = Html.fromHtml(withLineBreaks, Html.FROM_HTML_MODE_LEGACY)
         .toString()
-        .replace('\\u00A0', ' ')
-        .replace(Regex("[ \\t]+\\n"), "\\n")
-        .replace(Regex("\\n{3,}"), "\\n\\n")
+        .replace('\u00A0', ' ')
+        .replace(Regex("""[ \t]+\n"""), "\n")
+        .replace(Regex("""\n{3,}"""), "\n\n")
         .trim()
     return createPlainTextContent(DocumentFormatType.HTML, title, size, plainText)
 }
