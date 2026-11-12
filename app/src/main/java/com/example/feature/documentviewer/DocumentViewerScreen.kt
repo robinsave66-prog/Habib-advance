@@ -1507,34 +1507,78 @@ private fun decodeOfficeXmlText(value: String): String =
     Html.fromHtml(value, Html.FROM_HTML_MODE_LEGACY).toString()
 
 private fun parsePptxDocument(context: Context, uri: Uri, title: String, size: Long): ParsedDocumentContent {
-    val slideMap = mutableMapOf<Int, String>()
+    var presentationXml = ""
+    var presentationRelsXml = ""
+    val slideXmlByPath = mutableMapOf<String, String>()
 
-    context.contentResolver.openInputStream(uri)?.use { inStream ->
-        ZipInputStream(inStream).use { zip ->
+    context.contentResolver.openInputStream(uri)?.use { input ->
+        ZipInputStream(input).use { zip ->
             var entry = zip.nextEntry
             while (entry != null) {
-                if (entry.name.startsWith("ppt/slides/slide") && entry.name.endsWith(".xml")) {
-                    val slideNum = entry.name.removePrefix("ppt/slides/slide").removeSuffix(".xml").toIntOrNull() ?: 0
-                    val xml = zip.bufferedReader().readText()
-                    val tRegex = Regex("<a:t>(.*?)</a:t>")
-                    val slideText = tRegex.findAll(xml).joinToString(" ") { it.groupValues[1] }
-                    if (slideText.isNotBlank()) {
-                        slideMap[slideNum] = slideText.trim()
-                    }
+                when {
+                    entry.name == "ppt/presentation.xml" -> presentationXml = zip.bufferedReader().readText()
+                    entry.name == "ppt/_rels/presentation.xml.rels" -> presentationRelsXml = zip.bufferedReader().readText()
+                    entry.name.startsWith("ppt/slides/slide") && entry.name.endsWith(".xml") ->
+                        slideXmlByPath[entry.name] = zip.bufferedReader().readText()
                 }
                 zip.closeEntry()
                 entry = zip.nextEntry
             }
         }
+    } ?: return ParsedDocumentContent(
+        format = DocumentFormatType.PPTX,
+        title = title,
+        fileSize = size,
+        presentationSlides = emptyList()
+    )
+
+    fun attribute(attributes: String, name: String): String? {
+        val pattern = """(?:^|\s)${Regex.escape(name)}\s*=\s*"([^"]*)""""
+        return Regex(pattern).find(attributes)?.groupValues?.get(1)
     }
 
-    val sortedSlides = slideMap.entries.sortedBy { it.key }.map { it.value }
+    val relationshipTargets = mutableMapOf<String, String>()
+    Regex("<Relationship\\b([^>]*)/?>").findAll(presentationRelsXml).forEach { match ->
+        val attrs = match.groupValues[1]
+        val id = attribute(attrs, "Id") ?: return@forEach
+        val target = attribute(attrs, "Target") ?: return@forEach
+        relationshipTargets[id] = when {
+            target.startsWith("/") -> target.removePrefix("/")
+            target.startsWith("ppt/") -> target
+            else -> "ppt/$target"
+        }
+    }
+
+    val orderedSlidePaths = Regex("<(?:p:)?sldId\\b([^>]*)/?>")
+        .findAll(presentationXml)
+        .mapNotNull { match ->
+            val attrs = match.groupValues[1]
+            val relationId = attribute(attrs, "r:id") ?: attribute(attrs, "id")
+            relationId?.let { relationshipTargets[it] }
+        }
+        .toList()
+
+    val slidePaths = if (orderedSlidePaths.isNotEmpty()) orderedSlidePaths else {
+        slideXmlByPath.keys.sortedBy { path ->
+            Regex("""slide(\d+)\.xml""").find(path)?.groupValues?.get(1)?.toIntOrNull() ?: Int.MAX_VALUE
+        }
+    }
+
+    val paragraphRegex = Regex("<a:p\\b[^>]*>(.*?)</a:p>", RegexOption.DOT_MATCHES_ALL)
+    val textRegex = Regex("<a:t\\b[^>]*>(.*?)</a:t>", RegexOption.DOT_MATCHES_ALL)
+    val slides = slidePaths.map { path ->
+        val xml = slideXmlByPath[path].orEmpty()
+        paragraphRegex.findAll(xml).map { paragraph ->
+            textRegex.findAll(paragraph.groupValues[1])
+                .joinToString("") { decodeOfficeXmlText(it.groupValues[1]) }
+        }.joinToString("\n").trim()
+    }
 
     return ParsedDocumentContent(
         format = DocumentFormatType.PPTX,
         title = title,
         fileSize = size,
-        presentationSlides = sortedSlides
+        presentationSlides = slides
     )
 }
 
