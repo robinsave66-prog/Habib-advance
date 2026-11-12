@@ -12,7 +12,6 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,6 +22,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -94,7 +94,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.calculateZoom
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -543,10 +542,15 @@ fun PdfViewerScreen(
                                 do {
                                     val event = awaitPointerEvent()
                                     if (event.changes.count { it.pressed } >= 2) {
-                                        val zoomChange = event.calculateZoom()
-                                        if (zoomChange != 1f) {
-                                            zoomScale = (zoomScale * zoomChange).coerceIn(0.8f, 3.5f)
-                                            event.changes.forEach { it.consume() }
+                                        val pressed = event.changes.filter { it.pressed }
+                                        val currentDistance = (pressed[0].position - pressed[1].position).getDistance()
+                                        val previousDistance = (pressed[0].previousPosition - pressed[1].previousPosition).getDistance()
+                                        if (previousDistance > 0f) {
+                                            val zoomChange = currentDistance / previousDistance
+                                            if (zoomChange != 1f) {
+                                                zoomScale = (zoomScale * zoomChange).coerceIn(0.8f, 3.5f)
+                                                event.changes.forEach { it.consume() }
+                                            }
                                         }
                                     }
                                 } while (event.changes.any { it.pressed })
