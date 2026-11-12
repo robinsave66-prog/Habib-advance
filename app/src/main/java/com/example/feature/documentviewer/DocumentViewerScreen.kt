@@ -136,6 +136,7 @@ data class ParsedDocumentContent(
     val title: String,
     val fileSize: Long,
     val paragraphs: List<String> = emptyList(),
+    val docxTables: List<List<List<String>>> = emptyList(),
     val spreadsheetSheets: Map<String, List<List<String>>> = emptyMap(),
     val presentationSlides: List<String> = emptyList(),
     val rawText: String = "",
@@ -417,6 +418,7 @@ fun DocumentViewerScreen(
                         DocumentFormatType.DOCX -> {
                             DocxContentViewer(
                                 paragraphs = content.paragraphs,
+                                tables = content.docxTables,
                                 searchQuery = searchQuery
                             )
                         }
@@ -597,10 +599,11 @@ private fun DocumentFormatOverviewHeader(
 @Composable
 private fun DocxContentViewer(
     paragraphs: List<String>,
+    tables: List<List<List<String>>>,
     searchQuery: String
 ) {
-    if (paragraphs.isEmpty()) {
-        EmptyDocumentPlaceholder("No readable text found in this Word document.")
+    if (paragraphs.isEmpty() && tables.isEmpty()) {
+        EmptyDocumentPlaceholder("No readable text or tables found in this Word document.")
     } else {
         LazyColumn(
             modifier = Modifier
@@ -621,11 +624,9 @@ private fun DocxContentViewer(
                     ) {
                         paragraphs.forEach { paragraph ->
                             val isHeading = paragraph.length < 60 && (paragraph.all { it.isUpperCase() || it.isWhitespace() } || paragraph.endsWith(":"))
-
                             val annotated = remember(paragraph, searchQuery) {
                                 buildAnnotatedText(paragraph, searchQuery)
                             }
-
                             Text(
                                 text = annotated,
                                 style = if (isHeading) MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyMedium,
@@ -633,6 +634,46 @@ private fun DocxContentViewer(
                                 color = if (isHeading) MaterialTheme.colorScheme.primary else Color(0xFF1E293B),
                                 lineHeight = 22.sp
                             )
+                        }
+                        tables.forEachIndexed { tableIndex, table ->
+                            Text(
+                                text = "Table " + (tableIndex + 1),
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState())
+                                    .border(1.dp, Color(0xFFCBD5E1), RoundedCornerShape(6.dp))
+                            ) {
+                                table.forEachIndexed { rowIndex, cells ->
+                                    Row(modifier = Modifier.background(
+                                        if (rowIndex == 0) MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
+                                        else Color.White
+                                    )) {
+                                        cells.forEach { cell ->
+                                            val annotatedCell = remember(cell, searchQuery) {
+                                                buildAnnotatedText(cell, searchQuery)
+                                            }
+                                            Box(
+                                                modifier = Modifier
+                                                    .width(150.dp)
+                                                    .border(0.5.dp, Color(0xFFCBD5E1))
+                                                    .padding(horizontal = 8.dp, vertical = 7.dp)
+                                            ) {
+                                                Text(
+                                                    text = annotatedCell,
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    fontWeight = if (rowIndex == 0) FontWeight.Bold else FontWeight.Normal,
+                                                    color = Color(0xFF1E293B)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -1291,20 +1332,31 @@ private fun getFormatColor(type: DocumentFormatType): Color = when (type) {
 
 private fun parseDocxDocument(context: Context, uri: Uri, title: String, size: Long): ParsedDocumentContent {
     val paragraphs = mutableListOf<String>()
+    val tables = mutableListOf<List<List<String>>>()
     context.contentResolver.openInputStream(uri)?.use { inStream ->
         ZipInputStream(inStream).use { zip ->
             var entry = zip.nextEntry
             while (entry != null) {
                 if (entry.name == "word/document.xml") {
                     val xml = zip.bufferedReader().readText()
-                    val pRegex = Regex("<w:p[ >](.*?)</w:p>", RegexOption.DOT_MATCHES_ALL)
-                    val tRegex = Regex("<w:t[ >](.*?)</w:t>", RegexOption.DOT_MATCHES_ALL)
-                    for (pMatch in pRegex.findAll(xml)) {
-                        val pContent = pMatch.value
-                        val pText = tRegex.findAll(pContent).joinToString("") { it.groupValues[1] }
-                        if (pText.isNotBlank()) {
-                            paragraphs.add(pText.trim())
+                    val tableRegex = Regex("<w:tbl[ >](.*?)</w:tbl>", RegexOption.DOT_MATCHES_ALL)
+                    tableRegex.findAll(xml).forEach { tableMatch ->
+                        val rows = mutableListOf<List<String>>()
+                        val rowRegex = Regex("<w:tr[ >](.*?)</w:tr>", RegexOption.DOT_MATCHES_ALL)
+                        val cellRegex = Regex("<w:tc[ >](.*?)</w:tc>", RegexOption.DOT_MATCHES_ALL)
+                        rowRegex.findAll(tableMatch.value).forEach { rowMatch ->
+                            val cells = cellRegex.findAll(rowMatch.value).map { cellMatch ->
+                                extractDocxText(cellMatch.value)
+                            }.toList()
+                            if (cells.isNotEmpty()) rows.add(cells)
                         }
+                        if (rows.isNotEmpty()) tables.add(rows)
+                    }
+                    val bodyWithoutTables = tableRegex.replace(xml, "")
+                    val pRegex = Regex("<w:p[ >](.*?)</w:p>", RegexOption.DOT_MATCHES_ALL)
+                    pRegex.findAll(bodyWithoutTables).forEach { pMatch ->
+                        val text = extractDocxText(pMatch.value)
+                        if (text.isNotBlank()) paragraphs.add(text)
                     }
                     break
                 }
@@ -1317,8 +1369,16 @@ private fun parseDocxDocument(context: Context, uri: Uri, title: String, size: L
         format = DocumentFormatType.DOCX,
         title = title,
         fileSize = size,
-        paragraphs = paragraphs
+        paragraphs = paragraphs,
+        docxTables = tables
     )
+}
+
+private fun extractDocxText(xmlFragment: String): String {
+    val text = Regex("<w:t(?:\\s+[^>]*)?>(.*?)</w:t>", RegexOption.DOT_MATCHES_ALL)
+        .findAll(xmlFragment)
+        .joinToString("") { it.groupValues[1] }
+    return Html.fromHtml(text, Html.FROM_HTML_MODE_LEGACY).toString().trim()
 }
 
 private fun parseXlsxDocument(context: Context, uri: Uri, title: String, size: Long): ParsedDocumentContent {
