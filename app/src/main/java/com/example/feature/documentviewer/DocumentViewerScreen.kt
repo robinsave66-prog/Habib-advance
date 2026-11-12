@@ -423,8 +423,7 @@ fun DocumentViewerScreen(
                     when (formatType) {
                         DocumentFormatType.DOCX -> {
                             DocxContentViewer(
-                                paragraphs = content.paragraphs,
-                                tables = content.docxTables,
+                                blocks = content.docxBlocks,
                                 searchQuery = searchQuery
                             )
                         }
@@ -604,32 +603,37 @@ private fun DocumentFormatOverviewHeader(
 
 @Composable
 private fun DocxContentViewer(
-    paragraphs: List<String>,
-    tables: List<List<List<String>>>,
+    blocks: List<DocxContentBlock>,
     searchQuery: String
 ) {
-    if (paragraphs.isEmpty() && tables.isEmpty()) {
+    if (blocks.isEmpty()) {
         EmptyDocumentPlaceholder("No readable text or tables found in this Word document.")
-    } else {
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            item {
-                Card(
-                    shape = RoundedCornerShape(8.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color.White),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-                    modifier = Modifier.fillMaxWidth()
+        return
+    }
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        item {
+            Card(
+                shape = RoundedCornerShape(8.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Column(
-                        modifier = Modifier.padding(20.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        paragraphs.forEach { paragraph ->
-                            val isHeading = paragraph.length < 60 && (paragraph.all { it.isUpperCase() || it.isWhitespace() } || paragraph.endsWith(":"))
+                    blocks.forEachIndexed { blockIndex, block ->
+                        val paragraph = block.paragraph
+                        val table = block.table
+                        if (paragraph != null) {
+                            val isHeading = paragraph.length < 60 &&
+                                (paragraph.all { it.isUpperCase() || it.isWhitespace() } || paragraph.endsWith(":"))
                             val annotated = remember(paragraph, searchQuery) {
                                 buildAnnotatedText(paragraph, searchQuery)
                             }
@@ -640,10 +644,10 @@ private fun DocxContentViewer(
                                 color = if (isHeading) MaterialTheme.colorScheme.primary else Color(0xFF1E293B),
                                 lineHeight = 22.sp
                             )
-                        }
-                        tables.forEachIndexed { tableIndex, table ->
+                        } else if (table != null) {
+                            val tableNumber = blocks.take(blockIndex + 1).count { it.table != null }
                             Text(
-                                text = "Table " + (tableIndex + 1),
+                                text = "Table $tableNumber",
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.primary
@@ -655,10 +659,12 @@ private fun DocxContentViewer(
                                     .border(1.dp, Color(0xFFCBD5E1), RoundedCornerShape(6.dp))
                             ) {
                                 table.forEachIndexed { rowIndex, cells ->
-                                    Row(modifier = Modifier.background(
-                                        if (rowIndex == 0) MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
-                                        else Color.White
-                                    )) {
+                                    Row(
+                                        modifier = Modifier.background(
+                                            if (rowIndex == 0) MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
+                                            else Color.White
+                                        )
+                                    ) {
                                         cells.forEach { cell ->
                                             val annotatedCell = remember(cell, searchQuery) {
                                                 buildAnnotatedText(cell, searchQuery)
