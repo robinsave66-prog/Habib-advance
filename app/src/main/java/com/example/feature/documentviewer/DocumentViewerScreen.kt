@@ -1496,7 +1496,7 @@ private fun createPlainTextContent(
     size: Long,
     text: String
 ): ParsedDocumentContent {
-    val lines = text.split("\\n")
+    val lines = text.split("\n")
     val words = text.split("\\s+".toRegex()).filter { it.isNotBlank() }
     return ParsedDocumentContent(
         format = format,
