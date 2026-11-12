@@ -29,6 +29,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -78,6 +80,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -103,6 +106,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.core.sharing.FileSharingManager
 import com.example.data.preferences.PdfFitMode
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -503,12 +507,24 @@ fun PdfViewerScreen(
             }
 
             is ViewerUiState.Loaded -> {
-                // Determine actual page dimensions & aspect ratio
-                val pageIdx = state.currentPage - 1
-                val rawDims = viewModel.getPageDimensions(pageIdx) ?: Pair(595, 842)
-                val rawW = rawDims.first.toFloat().coerceAtLeast(100f)
-                val rawH = rawDims.second.toFloat().coerceAtLeast(100f)
-                val pageAspectRatio = rawW / rawH // Supports both portrait (< 1) and landscape (> 1)
+                // Continuous document mode: lazily render every page in one vertical stream.
+                val listState = rememberLazyListState()
+
+                LaunchedEffect(listState, state.totalPages) {
+                    snapshotFlow { listState.firstVisibleItemIndex }
+                        .distinctUntilChanged()
+                        .collect { visibleIndex ->
+                            viewModel.onPageChanged((visibleIndex + 1).coerceIn(1, state.totalPages))
+                        }
+                }
+
+                // Keep page navigation, search matches and jump-to-page synchronized with scrolling.
+                LaunchedEffect(state.currentPage, state.totalPages) {
+                    val targetIndex = (state.currentPage - 1).coerceIn(0, state.totalPages - 1)
+                    if (listState.firstVisibleItemIndex != targetIndex) {
+                        listState.animateScrollToItem(targetIndex)
+                    }
+                }
 
                 BoxWithConstraints(
                     modifier = Modifier
@@ -519,7 +535,6 @@ fun PdfViewerScreen(
                             detectTransformGestures { _, pan, zoom, _ ->
                                 zoomScale = (zoomScale * zoom).coerceIn(0.8f, 3.5f)
                                 if (zoomScale > 1.0f) {
-                                    // Panning allowed when zoomed in
                                     panOffsetX += pan.x
                                     panOffsetY += pan.y
                                 } else {
@@ -531,104 +546,110 @@ fun PdfViewerScreen(
                         .pointerInput(Unit) {
                             detectTapGestures(
                                 onDoubleTap = {
-                                    if (zoomScale > 1.2f) {
-                                        zoomScale = 1.0f
-                                        panOffsetX = 0f
-                                        panOffsetY = 0f
-                                    } else {
-                                        zoomScale = 2.0f
-                                    }
+                                    zoomScale = if (zoomScale > 1.2f) 1.0f else 2.0f
+                                    panOffsetX = 0f
+                                    panOffsetY = 0f
                                 }
                             )
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    val density = LocalDensity.current
-                    val viewportWidthPx = constraints.maxWidth.toFloat()
-                    val viewportHeightPx = constraints.maxHeight.toFloat()
-
-                    // Compute fitted page size based on aspect ratio
-                    val basePageWidthPx = if (viewportWidthPx / viewportHeightPx < pageAspectRatio) {
-                        viewportWidthPx * 0.94f
-                    } else {
-                        viewportHeightPx * 0.92f * pageAspectRatio
-                    }
-                    val basePageHeightPx = basePageWidthPx / pageAspectRatio
-
-                    // STRICT BOUNDARY CLAMPING:
-                    // Max pan distance is exactly half the extra scaled dimension.
-                    // This mathematically guarantees that the page can NEVER leave the viewport!
-                    val maxPanX = if (zoomScale > 1f) (basePageWidthPx * (zoomScale - 1f)) / 2f else 0f
-                    val maxPanY = if (zoomScale > 1f) (basePageHeightPx * (zoomScale - 1f)) / 2f else 0f
-
-                    val clampedPanX = panOffsetX.coerceIn(-maxPanX, maxPanX)
-                    val clampedPanY = panOffsetY.coerceIn(-maxPanY, maxPanY)
-
-                    // Synchronize clamp state
-                    panOffsetX = clampedPanX
-                    panOffsetY = clampedPanY
-
-                    val basePageWidthDp = with(density) { basePageWidthPx.toDp() }
-                    val basePageHeightDp = with(density) { basePageHeightPx.toDp() }
-
-                    // High-resolution bitmap rendering target scaled by zoom factor
-                    val targetRenderPx = (basePageWidthPx * density.density * zoomScale.coerceAtLeast(1f)).toInt().coerceIn(600, 3200)
-
-                    val pageBitmap by produceState<Bitmap?>(
-                        initialValue = null,
-                        key1 = state.currentPage,
-                        key2 = (targetRenderPx / 200) // Re-render when zoom crosses significant thresholds
-                    ) {
-                        value = viewModel.renderPageBitmap(pageIdx, targetRenderPx, (targetRenderPx / pageAspectRatio).toInt())
-                    }
-
-                    val isMatch = state.searchMatches.any { it.pageNumber == state.currentPage }
-
-                    // THE ACTUAL RENDERED PDF PAGE CONTAINER
-                    Box(
-                        modifier = Modifier
-                            .size(basePageWidthDp, basePageHeightDp)
-                            .graphicsLayer {
-                                scaleX = zoomScale
-                                scaleY = zoomScale
-                                translationX = clampedPanX
-                                translationY = clampedPanY
-                            }
-                            .shadow(8.dp, RoundedCornerShape(3.dp))
-                            .background(Color.White, RoundedCornerShape(3.dp))
-                            .border(
-                                width = if (isMatch) 3.dp else 1.dp,
-                                color = if (isMatch) Color(0xFFF59E0B) else Color(0xFFCBD5E1),
-                                shape = RoundedCornerShape(3.dp)
-                            )
-                            .testTag("pdf_rendered_page_view")
-                    ) {
-                        if (pageBitmap != null && !pageBitmap!!.isRecycled) {
-                            Image(
-                                bitmap = pageBitmap!!.asImageBitmap(),
-                                contentDescription = "PDF Page ${state.currentPage}",
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        } else {
-                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                CircularProgressIndicator(modifier = Modifier.size(36.dp), strokeWidth = 2.5.dp)
-                            }
                         }
+                ) {
+                    val pageWidth = maxWidth * zoomScale
+                    val density = LocalDensity.current
+                    val pageWidthPx = with(density) { pageWidth.toPx().toInt() }.coerceIn(600, 3200)
 
-                        // Search Match Badge
-                        if (isMatch) {
-                            Surface(
-                                color = Color(0xFFF59E0B),
-                                shape = RoundedCornerShape(bottomStart = 8.dp),
-                                modifier = Modifier.align(Alignment.TopEnd)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .horizontalScroll(rememberScrollState())
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .width(pageWidth)
+                                .fillMaxHeight()
+                        ) {
+                            LazyColumn(
+                                state = listState,
+                                modifier = Modifier.fillMaxSize(),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 12.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
-                                Text(
-                                    text = "SEARCH MATCH",
-                                    color = Color.White,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 10.sp,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                )
+                                items(state.totalPages, key = { it }) { pageIndex ->
+                                    val dimensions = viewModel.getPageDimensions(pageIndex) ?: Pair(595, 842)
+                                    val pageAspectRatio = dimensions.first.toFloat()
+                                        .coerceAtLeast(100f) / dimensions.second.toFloat().coerceAtLeast(100f)
+                                    val targetHeightPx = (pageWidthPx / pageAspectRatio).toInt().coerceIn(600, 4200)
+
+                                    val pageBitmap by produceState<Bitmap?>(
+                                        initialValue = null,
+                                        key1 = pageIndex,
+                                        key2 = pageWidthPx
+                                    ) {
+                                        value = viewModel.renderPageBitmap(pageIndex, pageWidthPx, targetHeightPx)
+                                    }
+
+                                    val isMatch = state.searchMatches.any { it.pageNumber == pageIndex + 1 }
+
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .aspectRatio(pageAspectRatio)
+                                            .shadow(7.dp, RoundedCornerShape(3.dp))
+                                            .background(Color.White, RoundedCornerShape(3.dp))
+                                            .border(
+                                                width = if (isMatch) 3.dp else 1.dp,
+                                                color = if (isMatch) Color(0xFFF59E0B) else Color(0xFFCBD5E1),
+                                                shape = RoundedCornerShape(3.dp)
+                                            )
+                                            .testTag("pdf_rendered_page_${pageIndex + 1}")
+                                    ) {
+                                        if (pageBitmap != null && !pageBitmap!!.isRecycled) {
+                                            Image(
+                                                bitmap = pageBitmap!!.asImageBitmap(),
+                                                contentDescription = "PDF Page ${pageIndex + 1}",
+                                                modifier = Modifier.fillMaxSize()
+                                            )
+                                        } else {
+                                            Box(
+                                                modifier = Modifier.fillMaxSize(),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                CircularProgressIndicator(
+                                                    modifier = Modifier.size(30.dp),
+                                                    strokeWidth = 2.5.dp
+                                                )
+                                            }
+                                        }
+
+                                        if (isMatch) {
+                                            Surface(
+                                                color = Color(0xFFF59E0B),
+                                                shape = RoundedCornerShape(bottomStart = 8.dp),
+                                                modifier = Modifier.align(Alignment.TopEnd)
+                                            ) {
+                                                Text(
+                                                    text = "SEARCH MATCH",
+                                                    color = Color.White,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 10.sp,
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                                )
+                                            }
+                                        }
+
+                                        Surface(
+                                            color = Color.Black.copy(alpha = 0.55f),
+                                            shape = RoundedCornerShape(topEnd = 6.dp, bottomStart = 6.dp),
+                                            modifier = Modifier.align(Alignment.BottomEnd)
+                                        ) {
+                                            Text(
+                                                text = "${pageIndex + 1} / ${state.totalPages}",
+                                                color = Color.White,
+                                                fontSize = 10.sp,
+                                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -640,8 +661,15 @@ fun PdfViewerScreen(
                         onDismissRequest = { showThumbnailsSheet = false },
                         sheetState = rememberModalBottomSheetState()
                     ) {
-                        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text("Page Thumbnails (${state.totalPages} Pages)", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Text(
+                                "Page Thumbnails (${state.totalPages} Pages)",
+                                fontWeight = FontWeight.Bold,
+                                style = MaterialTheme.typography.titleMedium
+                            )
                             LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 items(state.totalPages) { pIdx ->
                                     val pageNum = pIdx + 1
