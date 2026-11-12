@@ -464,7 +464,7 @@ fun MainAppHost(
                     HomeScreen(
                         viewModel = homeViewModel,
                         onOpenPdfPicker = {
-                            openPdfLauncher.launch(arrayOf("application/pdf"))
+                            openPdfLauncher.launch(arrayOf("*/*"))
                         },
                         onOpenDocument = { uri, name ->
                             viewingDocumentUri = uri
