@@ -10,6 +10,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -92,6 +94,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.calculateZoom
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -106,6 +109,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.core.sharing.FileSharingManager
 import com.example.data.preferences.PdfFitMode
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
@@ -532,15 +536,20 @@ fun PdfViewerScreen(
                         .padding(innerPadding)
                         .background(Color(0xFFE2E8F0))
                         .pointerInput(Unit) {
-                            detectTransformGestures { _, pan, zoom, _ ->
-                                zoomScale = (zoomScale * zoom).coerceIn(0.8f, 3.5f)
-                                if (zoomScale > 1.0f) {
-                                    panOffsetX += pan.x
-                                    panOffsetY += pan.y
-                                } else {
-                                    panOffsetX = 0f
-                                    panOffsetY = 0f
-                                }
+                            // Only consume two-finger pinch events. One-finger movement remains
+                            // available to the LazyColumn for normal vertical document scrolling.
+                            awaitEachGesture {
+                                awaitFirstDown(requireUnconsumed = false)
+                                do {
+                                    val event = awaitPointerEvent()
+                                    if (event.changes.count { it.pressed } >= 2) {
+                                        val zoomChange = event.calculateZoom()
+                                        if (zoomChange != 1f) {
+                                            zoomScale = (zoomScale * zoomChange).coerceIn(0.8f, 3.5f)
+                                            event.changes.forEach { it.consume() }
+                                        }
+                                    }
+                                } while (event.changes.any { it.pressed })
                             }
                         }
                         .pointerInput(Unit) {
