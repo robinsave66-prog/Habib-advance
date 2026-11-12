@@ -1383,7 +1383,8 @@ private fun extractDocxText(xmlFragment: String): String {
 
 private fun parseXlsxDocument(context: Context, uri: Uri, title: String, size: Long): ParsedDocumentContent {
     val sharedStrings = mutableListOf<String>()
-    val sheetNames = mutableListOf<String>()
+    var workbookXml = ""
+    var workbookRelsXml = ""
     val sheetDataMap = mutableMapOf<String, String>()
 
     context.contentResolver.openInputStream(uri)?.use { inStream ->
@@ -1396,27 +1397,25 @@ private fun parseXlsxDocument(context: Context, uri: Uri, title: String, size: L
                         val itemRegex = Regex("<si\\b[^>]*>(.*?)</si>", RegexOption.DOT_MATCHES_ALL)
                         val textRegex = Regex("<t\\b[^>]*>(.*?)</t>", RegexOption.DOT_MATCHES_ALL)
                         itemRegex.findAll(xml).forEach { item ->
-                            val combinedText = textRegex.findAll(item.groupValues[1])
-                                .joinToString("") { decodeOfficeXmlText(it.groupValues[1]) }
-                            sharedStrings.add(combinedText)
+                            sharedStrings.add(textRegex.findAll(item.groupValues[1])
+                                .joinToString("") { decodeOfficeXmlText(it.groupValues[1]) })
                         }
                     }
-                    entry.name == "xl/workbook.xml" -> {
-                        val xml = zip.bufferedReader().readText()
-                        val sheetRegex = Regex("""<sheet\b[^>]*\bname="([^"]+)"""")
-                        sheetRegex.findAll(xml).forEach {
-                            sheetNames.add(decodeOfficeXmlText(it.groupValues[1]))
-                        }
-                    }
-                    Regex("""xl/worksheets/sheet\d+\.xml""").matches(entry.name) -> {
+                    entry.name == "xl/workbook.xml" -> workbookXml = zip.bufferedReader().readText()
+                    entry.name == "xl/_rels/workbook.xml.rels" -> workbookRelsXml = zip.bufferedReader().readText()
+                    entry.name.startsWith("xl/worksheets/") && entry.name.endsWith(".xml") ->
                         sheetDataMap[entry.name] = zip.bufferedReader().readText()
-                    }
                 }
                 zip.closeEntry()
                 entry = zip.nextEntry
             }
         }
-    }
+    } ?: return ParsedDocumentContent(
+        format = DocumentFormatType.XLSX,
+        title = title,
+        fileSize = size,
+        spreadsheetSheets = emptyMap()
+    )
 
     fun attribute(attributes: String, name: String): String? {
         val pattern = """(?:^|\s)${Regex.escape(name)}\s*=\s*"([^"]*)""""
@@ -1430,16 +1429,36 @@ private fun parseXlsxDocument(context: Context, uri: Uri, title: String, size: L
         return (result - 1).coerceIn(0, 16383)
     }
 
-    val sheetsMap = LinkedHashMap<String, List<List<String>>>()
-    if (sheetNames.isEmpty()) sheetNames.add("Sheet 1")
-
-    val sortedSheetKeys = sheetDataMap.keys.sortedBy { key ->
-        Regex("""sheet(\\d+)\\.xml""").find(key)?.groupValues?.get(1)?.toIntOrNull() ?: Int.MAX_VALUE
+    val relationshipTargets = mutableMapOf<String, String>()
+    Regex("<Relationship\\b([^>]*)/?>").findAll(workbookRelsXml).forEach { match ->
+        val attrs = match.groupValues[1]
+        val id = attribute(attrs, "Id") ?: return@forEach
+        val target = attribute(attrs, "Target") ?: return@forEach
+        relationshipTargets[id] = when {
+            target.startsWith("/") -> target.removePrefix("/")
+            target.startsWith("xl/") -> target
+            else -> "xl/$target"
+        }
     }
 
-    sortedSheetKeys.forEachIndexed { sheetIndex, sheetKey ->
-        val sheetName = sheetNames.getOrNull(sheetIndex) ?: "Sheet ${sheetIndex + 1}"
-        val xml = sheetDataMap[sheetKey] ?: return@forEachIndexed
+    val orderedSheets = mutableListOf<Pair<String, String>>()
+    Regex("<sheet\\b([^>]*)/?>").findAll(workbookXml).forEach { match ->
+        val attrs = match.groupValues[1]
+        val name = attribute(attrs, "name")?.let(::decodeOfficeXmlText) ?: "Sheet ${orderedSheets.size + 1}"
+        val relationId = attribute(attrs, "r:id") ?: attribute(attrs, "id")
+        val target = relationId?.let { relationshipTargets[it] }
+        if (target != null) orderedSheets.add(name to target)
+    }
+
+    if (orderedSheets.isEmpty()) {
+        sheetDataMap.keys.sortedBy { key ->
+            Regex("""sheet(\d+)\.xml""").find(key)?.groupValues?.get(1)?.toIntOrNull() ?: Int.MAX_VALUE
+        }.forEachIndexed { index, key -> orderedSheets.add("Sheet ${index + 1}" to key) }
+    }
+
+    val sheetsMap = LinkedHashMap<String, List<List<String>>>()
+    orderedSheets.forEach { (sheetName, sheetPath) ->
+        val xml = sheetDataMap[sheetPath] ?: return@forEach
         val rows = mutableListOf<List<String>>()
         val rowRegex = Regex("<row\\b([^>]*)>(.*?)</row>", RegexOption.DOT_MATCHES_ALL)
         val cellRegex = Regex("<c\\b([^>]*)>(.*?)</c>|<c\\b([^>]*)/>", RegexOption.DOT_MATCHES_ALL)
@@ -1447,35 +1466,25 @@ private fun parseXlsxDocument(context: Context, uri: Uri, title: String, size: L
         val inlineTextRegex = Regex("<t\\b[^>]*>(.*?)</t>", RegexOption.DOT_MATCHES_ALL)
 
         rowRegex.findAll(xml).forEach { rowMatch ->
-            val rowAttributes = rowMatch.groupValues[1]
-            val rowXml = rowMatch.groupValues[2]
-            val rowNumber = attribute(rowAttributes, "r")?.toIntOrNull() ?: (rows.size + 1)
+            val rowNumber = attribute(rowMatch.groupValues[1], "r")?.toIntOrNull() ?: (rows.size + 1)
             while (rows.size < rowNumber - 1 && rows.size < 1_048_576) rows.add(emptyList())
-
             val indexedCells = sortedMapOf<Int, String>()
-            cellRegex.findAll(rowXml).forEach cellLoop@{ cellMatch ->
-                val cellAttributes = if (cellMatch.groupValues[1].isNotEmpty()) {
-                    cellMatch.groupValues[1]
-                } else {
-                    cellMatch.groupValues[3]
-                }
+
+            cellRegex.findAll(rowMatch.groupValues[2]).forEach cellLoop@{ cellMatch ->
+                val attrs = if (cellMatch.groupValues[1].isNotEmpty()) cellMatch.groupValues[1] else cellMatch.groupValues[3]
                 val cellXml = cellMatch.groupValues[2]
-                val reference = attribute(cellAttributes, "r") ?: return@cellLoop
+                val reference = attribute(attrs, "r") ?: return@cellLoop
                 val column = columnIndex(reference)
-                val type = attribute(cellAttributes, "t").orEmpty()
-                val rawValue = if (type == "inlineStr") {
-                    inlineTextRegex.findAll(cellXml)
-                        .joinToString("") { decodeOfficeXmlText(it.groupValues[1]) }
-                } else {
-                    valueRegex.find(cellXml)?.groupValues?.get(1).orEmpty()
+                val type = attribute(attrs, "t").orEmpty()
+                val raw = if (type == "inlineStr") {
+                    inlineTextRegex.findAll(cellXml).joinToString("") { decodeOfficeXmlText(it.groupValues[1]) }
+                } else valueRegex.find(cellXml)?.groupValues?.get(1).orEmpty()
+                indexedCells[column] = when (type) {
+                    "s" -> sharedStrings.getOrNull(raw.toIntOrNull() ?: -1) ?: raw
+                    "inlineStr" -> raw
+                    "b" -> if (raw == "1") "TRUE" else if (raw == "0") "FALSE" else raw
+                    else -> decodeOfficeXmlText(raw)
                 }
-                val value = when (type) {
-                    "s" -> sharedStrings.getOrNull(rawValue.toIntOrNull() ?: -1) ?: rawValue
-                    "inlineStr" -> rawValue
-                    "b" -> if (rawValue == "1") "TRUE" else if (rawValue == "0") "FALSE" else rawValue
-                    else -> decodeOfficeXmlText(rawValue)
-                }
-                indexedCells[column] = value
             }
 
             val width = (indexedCells.keys.maxOrNull()?.plus(1) ?: 0).coerceAtMost(16384)
