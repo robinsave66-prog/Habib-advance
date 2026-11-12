@@ -131,12 +131,18 @@ enum class DocumentFormatType {
     UNSUPPORTED
 }
 
+data class DocxContentBlock(
+    val paragraph: String? = null,
+    val table: List<List<String>>? = null
+)
+
 data class ParsedDocumentContent(
     val format: DocumentFormatType,
     val title: String,
     val fileSize: Long,
     val paragraphs: List<String> = emptyList(),
     val docxTables: List<List<List<String>>> = emptyList(),
+    val docxBlocks: List<DocxContentBlock> = emptyList(),
     val spreadsheetSheets: Map<String, List<List<String>>> = emptyMap(),
     val presentationSlides: List<String> = emptyList(),
     val rawText: String = "",
@@ -1331,32 +1337,33 @@ private fun getFormatColor(type: DocumentFormatType): Color = when (type) {
 }
 
 private fun parseDocxDocument(context: Context, uri: Uri, title: String, size: Long): ParsedDocumentContent {
-    val paragraphs = mutableListOf<String>()
-    val tables = mutableListOf<List<List<String>>>()
+    val blocks = mutableListOf<DocxContentBlock>()
     context.contentResolver.openInputStream(uri)?.use { inStream ->
         ZipInputStream(inStream).use { zip ->
             var entry = zip.nextEntry
             while (entry != null) {
                 if (entry.name == "word/document.xml") {
                     val xml = zip.bufferedReader().readText()
-                    val tableRegex = Regex("<w:tbl[ >](.*?)</w:tbl>", RegexOption.DOT_MATCHES_ALL)
-                    tableRegex.findAll(xml).forEach { tableMatch ->
-                        val rows = mutableListOf<List<String>>()
-                        val rowRegex = Regex("<w:tr[ >](.*?)</w:tr>", RegexOption.DOT_MATCHES_ALL)
-                        val cellRegex = Regex("<w:tc[ >](.*?)</w:tc>", RegexOption.DOT_MATCHES_ALL)
-                        rowRegex.findAll(tableMatch.value).forEach { rowMatch ->
-                            val cells = cellRegex.findAll(rowMatch.value).map { cellMatch ->
-                                extractDocxText(cellMatch.value)
-                            }.toList()
-                            if (cells.isNotEmpty()) rows.add(cells)
+                    val body = Regex("<w:body\\b[^>]*>(.*?)</w:body>", RegexOption.DOT_MATCHES_ALL)
+                        .find(xml)?.groupValues?.get(1).orEmpty()
+                    val blockRegex = Regex("<w:(p|tbl)\\b[^>]*>.*?</w:\\1>", RegexOption.DOT_MATCHES_ALL)
+                    blockRegex.findAll(body).forEach { match ->
+                        val blockXml = match.value
+                        if (match.groupValues[1] == "p") {
+                            val paragraph = extractDocxText(blockXml)
+                            if (paragraph.isNotBlank()) blocks.add(DocxContentBlock(paragraph = paragraph))
+                        } else {
+                            val rows = mutableListOf<List<String>>()
+                            val rowRegex = Regex("<w:tr\\b[^>]*>(.*?)</w:tr>", RegexOption.DOT_MATCHES_ALL)
+                            val cellRegex = Regex("<w:tc\\b[^>]*>(.*?)</w:tc>", RegexOption.DOT_MATCHES_ALL)
+                            rowRegex.findAll(blockXml).forEach { rowMatch ->
+                                val cells = cellRegex.findAll(rowMatch.groupValues[1])
+                                    .map { extractDocxText(it.value) }
+                                    .toList()
+                                if (cells.isNotEmpty()) rows.add(cells)
+                            }
+                            if (rows.isNotEmpty()) blocks.add(DocxContentBlock(table = rows))
                         }
-                        if (rows.isNotEmpty()) tables.add(rows)
-                    }
-                    val bodyWithoutTables = tableRegex.replace(xml, "")
-                    val pRegex = Regex("<w:p[ >](.*?)</w:p>", RegexOption.DOT_MATCHES_ALL)
-                    pRegex.findAll(bodyWithoutTables).forEach { pMatch ->
-                        val text = extractDocxText(pMatch.value)
-                        if (text.isNotBlank()) paragraphs.add(text)
                     }
                     break
                 }
@@ -1365,12 +1372,15 @@ private fun parseDocxDocument(context: Context, uri: Uri, title: String, size: L
             }
         }
     }
+    val paragraphs = blocks.mapNotNull { it.paragraph }
+    val tables = blocks.mapNotNull { it.table }
     return ParsedDocumentContent(
         format = DocumentFormatType.DOCX,
         title = title,
         fileSize = size,
         paragraphs = paragraphs,
-        docxTables = tables
+        docxTables = tables,
+        docxBlocks = blocks
     )
 }
 
