@@ -87,6 +87,10 @@ jobs:
           APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
           "$APKSIGNER" verify --verbose --print-certs "$APK"
 
+      - name: Create standard debug keystore for emulator tests
+        run: |
+          keytool -genkeypair -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -dname "CN=Android Debug,O=Android,C=US" -keyalg RSA -keysize 2048 -validity 10000
+
       - name: Run Android OCR and secure-redaction instrumentation tests
         uses: reactivecircus/android-emulator-runner@v2
         with:
