@@ -5,6 +5,7 @@ import android.net.Uri
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.multipdf.PDFMergerUtility
 import com.tom_roush.pdfbox.pdmodel.PDDocument
+import com.tom_roush.pdfbox.io.MemoryUsageSetting
 import com.tom_roush.pdfbox.pdmodel.PDPage
 import com.tom_roush.pdfbox.pdmodel.common.PDRectangle
 import kotlinx.coroutines.Dispatchers
@@ -139,7 +140,7 @@ class PdfBoxDocumentEngine(private val context: Context) {
                 merger.addSource(temp)
             }
             merger.destinationFileName = output.absolutePath
-            merger.mergeDocuments(null)
+            merger.mergeDocuments(MemoryUsageSetting.setupTempFileOnly())
             output
         } catch (error: Exception) {
             output.delete()
