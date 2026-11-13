@@ -235,6 +235,8 @@ fun DocumentViewerScreen(
                     }
                 }
             }
+        } else {
+            pendingOfficeOutput = null
         }
     }
 
