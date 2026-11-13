@@ -76,11 +76,11 @@ class PdfBoxOverlayExportEngine(private val context: Context) {
     ) {
         stream.saveGraphicsState()
         try {
-            stream.transform(Matrix.getTranslateInstance(element.x.toDouble(), (pageHeight - element.y - element.height).toDouble()))
+            stream.transform(Matrix.getTranslateInstance(element.x, pageHeight - element.y - element.height))
             if (element.rotationDegrees != 0f) {
                 stream.transform(
                     Matrix.getRotateInstance(
-                        Math.toRadians(element.rotationDegrees.toDouble()).toFloat(),
+                        Math.toRadians(element.rotationDegrees.toDouble()),
                         element.width / 2f, element.height / 2f
                     )
                 )
