@@ -69,7 +69,10 @@ class PdfBoxDocumentEngine(private val context: Context) {
         editSource(sourceUri, outputFileName) { document ->
             require(pageIndex in 0 until document.numberOfPages) { "Select a valid page to duplicate." }
             val original = document.getPage(pageIndex)
+            // PDFBox importPage may append the imported page to the page tree.
+            // Remove that appended entry before inserting it at the requested position.
             val duplicate = document.importPage(original)
+            document.pages.remove(duplicate)
             document.pages.insertAfter(duplicate, original)
         }
     }
