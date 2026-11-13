@@ -73,8 +73,8 @@ class PdfBoxDocumentEngineTest {
         val output = engine.extractPages(Uri.fromFile(source), listOf(2, 0), "extracted-page-test.pdf")
         PDDocument.load(output).use { document ->
             assertEquals(2, document.numberOfPages)
-            assertEquals(500f, document.getPage(0).mediaBox.width)
-            assertEquals(300f, document.getPage(1).mediaBox.width)
+            assertEquals(500f, document.getPage(0).mediaBox.width, 0.01f)
+            assertEquals(300f, document.getPage(1).mediaBox.width, 0.01f)
         }
     }
 }
