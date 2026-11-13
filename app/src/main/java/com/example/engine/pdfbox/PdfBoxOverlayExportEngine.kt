@@ -1,6 +1,13 @@
 package com.example.engine.pdfbox
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Typeface
+import android.text.Layout
+import android.text.StaticLayout
+import android.text.TextPaint
 import android.net.Uri
 import com.example.engine.editor.EditorElement
 import com.example.engine.editor.ImageElement
@@ -17,6 +24,7 @@ import com.tom_roush.pdfbox.pdmodel.graphics.state.PDExtendedGraphicsState
 import com.tom_roush.pdfbox.util.Matrix
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
 
@@ -127,7 +135,7 @@ class PdfBoxOverlayExportEngine(private val context: Context) {
             }
             stream.setGraphicsStateParameters(state)
             when (element) {
-                is TextElement -> drawText(stream, element)
+                is TextElement -> drawText(document, stream, element)
                 is ShapeElement -> drawShape(stream, element)
                 is SignatureElement -> drawSignature(stream, element)
                 is ImageElement -> drawImage(document, stream, element)
@@ -137,7 +145,13 @@ class PdfBoxOverlayExportEngine(private val context: Context) {
         }
     }
 
-    private fun drawText(stream: PDPageContentStream, element: TextElement) {
+    private fun drawText(document: PDDocument, stream: PDPageContentStream, element: TextElement) {
+        // Android's text shaper supports Bengali conjuncts and vowel marks. PDFBox's
+        // built-in Type 1 fonts do not; render Bengali overlays to a transparent image.
+        if (element.text.any { it.code in 0x0980..0x09FF }) {
+            drawBengaliTextImage(document, stream, element)
+            return
+        }
         if (element.backgroundColor != null) {
             setFillColor(stream, element.backgroundColor)
             stream.addRect(0f, 0f, element.width, element.height)
@@ -183,6 +197,73 @@ class PdfBoxOverlayExportEngine(private val context: Context) {
             stream.moveTo(x, y)
             stream.lineTo((x + textWidth).coerceAtMost(element.width), y)
             stream.stroke()
+        }
+    }
+
+
+
+    private fun drawBengaliTextImage(
+        document: PDDocument,
+        stream: PDPageContentStream,
+        element: TextElement
+    ) {
+        require(element.width > 0f && element.height > 0f) {
+            "Bengali text needs a text box with positive width and height."
+        }
+        val scale = 3
+        val bitmapWidth = (element.width * scale).toInt().coerceAtLeast(1)
+        val bitmapHeight = (element.height * scale).toInt().coerceAtLeast(1)
+        val bitmap = Bitmap.createBitmap(bitmapWidth, bitmapHeight, Bitmap.Config.ARGB_8888)
+        try {
+            val canvas = Canvas(bitmap)
+            canvas.scale(scale.toFloat(), scale.toFloat())
+            element.backgroundColor?.let { background ->
+                val backgroundPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = background.toInt()
+                    style = Paint.Style.FILL
+                }
+                canvas.drawRect(0f, 0f, element.width, element.height, backgroundPaint)
+            }
+
+            val typefaceStyle = when {
+                element.isBold && element.isItalic -> Typeface.BOLD_ITALIC
+                element.isBold -> Typeface.BOLD
+                element.isItalic -> Typeface.ITALIC
+                else -> Typeface.NORMAL
+            }
+            val paint = TextPaint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG).apply {
+                color = element.textColor.toInt()
+                textSize = element.fontSizePt.coerceAtLeast(1f)
+                typeface = Typeface.create(Typeface.DEFAULT, typefaceStyle)
+                isUnderlineText = element.isUnderline
+            }
+            val alignment = when (element.textAlign.uppercase()) {
+                "CENTER" -> Layout.Alignment.ALIGN_CENTER
+                "RIGHT" -> Layout.Alignment.ALIGN_OPPOSITE
+                else -> Layout.Alignment.ALIGN_NORMAL
+            }
+            val layout = StaticLayout.Builder
+                .obtain(element.text, 0, element.text.length, paint, element.width.toInt().coerceAtLeast(1))
+                .setAlignment(alignment)
+                .setIncludePad(false)
+                .setBreakStrategy(Layout.BREAK_STRATEGY_SIMPLE)
+                .build()
+            canvas.save()
+            canvas.clipRect(0f, 0f, element.width, element.height)
+            layout.draw(canvas)
+            canvas.restore()
+
+            ByteArrayOutputStream().use { output ->
+                check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)) {
+                    "Unable to render Bengali text for PDF export."
+                }
+                val image = PDImageXObject.createFromByteArray(
+                    document, output.toByteArray(), "bengali-text-overlay"
+                )
+                stream.drawImage(image, 0f, 0f, element.width, element.height)
+            }
+        } finally {
+            bitmap.recycle()
         }
     }
 
