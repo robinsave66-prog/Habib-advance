@@ -153,7 +153,7 @@ class PdfBoxOverlayExportEngine(private val context: Context) {
             font.getStringWidth(element.text) / 1000f * element.fontSizePt
         } catch (error: Exception) {
             throw IllegalArgumentException(
-                "The built-in PDF font cannot encode this text. Bengali/Arabic export needs a compatible embedded font.",
+                "The built-in PDF font cannot encode this text. Bengali export needs a compatible embedded font.",
                 error
             )
         }
