@@ -67,14 +67,14 @@ object OfflineTesseractOcrEngine {
             check(!closed) { "OCR session is already closed." }
             require(!bitmap.isRecycled) { "Cannot OCR a recycled bitmap." }
             api.setImage(bitmap)
-            return api.utF8Text.orEmpty().trim()
+            return api.getUTF8Text().orEmpty().trim()
         }
 
         fun recognizeWords(bitmap: Bitmap): List<OcrWordResult> {
             check(!closed) { "OCR session is already closed." }
             require(!bitmap.isRecycled) { "Cannot OCR a recycled bitmap." }
             api.setImage(bitmap)
-            val iterator = api.resultIterator ?: return emptyList()
+            val iterator = api.getResultIterator() ?: return emptyList()
             val words = mutableListOf<OcrWordResult>()
             try {
                 iterator.begin()

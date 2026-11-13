@@ -240,7 +240,10 @@ fun OcrScannerScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text("Recognition Target:", style = MaterialTheme.typography.labelMedium)
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.horizontalScroll(rememberScrollState())
+                        ) {
                             OcrLanguage.values().forEach { lang ->
                                 FilterChip(
                                     selected = selectedLanguage == lang,

@@ -39,7 +39,7 @@ data class DetectedPdfLine(
 object PdfTextExtractionEngine {
     /**
      * Extract actual native PDF glyph positions first. For scanned pages, fall back
-     * to on-device ML Kit Latin OCR. Never return fabricated sample words.
+     * to offline Tesseract Bengali and English OCR. Never return fabricated sample words.
      */
     suspend fun extractWordsFromPage(
         context: Context,
