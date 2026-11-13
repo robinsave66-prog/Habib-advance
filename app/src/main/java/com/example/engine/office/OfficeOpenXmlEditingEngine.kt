@@ -255,7 +255,6 @@ class OfficeOpenXmlEditingEngine(private val context: Context) {
 
     private fun serialize(xml: Document): ByteArray {
         val factory = TransformerFactory.newInstance().apply {
-            setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "")
         }
         val transformer = factory.newTransformer().apply {
             setOutputProperty(OutputKeys.ENCODING, "UTF-8")
