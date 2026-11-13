@@ -170,7 +170,16 @@ val downloadOcrLanguageModels = tasks.register("downloadOcrLanguageModels") {
           temporary.outputStream().use { output -> input.copyTo(output) }
         }
         check(temporary.length() == expectedSize) {
+          temporary.delete()
           "Downloaded $language OCR model has an unexpected size: ${temporary.length()}"
+        }
+        val sha1 = java.security.MessageDigest.getInstance("SHA-1")
+          .digest(temporary.readBytes())
+          .joinToString("") { byte -> "%02x".format(byte) }
+        val expectedSha1 = ocrModelSpecs.first { it.first == language }.second
+        check(sha1 == expectedSha1) {
+          temporary.delete()
+          "Downloaded $language OCR model failed SHA-1 integrity verification."
         }
         check(temporary.renameTo(target)) { "Unable to install $language OCR model." }
       }
