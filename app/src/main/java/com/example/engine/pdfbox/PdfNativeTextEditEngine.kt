@@ -70,12 +70,12 @@ class PdfNativeTextEditEngine(private val context: Context) {
                 var replacements = 0
 
                 fun replaceOperand(original: COSString): COSString {
-                    val font = activeFont
-                        ?: throw IllegalArgumentException("The selected text has no supported active PDF font.")
-                    require(activeFontSize > 0f) { "The selected text has an invalid font size." }
                     val decoded = original.string
                     val first = decoded.indexOf(oldText)
                     if (first < 0) return original
+                    val font = activeFont
+                        ?: throw IllegalArgumentException("The selected text has no supported active PDF font.")
+                    require(activeFontSize > 0f) { "The selected text has an invalid font size." }
                     require(decoded.indexOf(oldText, first + oldText.length) < 0) {
                         "The selected text occurs more than once in one PDF text object. Select a more specific phrase."
                     }
