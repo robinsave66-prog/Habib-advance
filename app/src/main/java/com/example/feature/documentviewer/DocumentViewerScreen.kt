@@ -1342,7 +1342,7 @@ private fun getFormatColor(type: DocumentFormatType): Color = when (type) {
     DocumentFormatType.UNSUPPORTED -> Color(0xFF607D8B)
 }
 
-private fun parseDocxDocument(context: Context, uri: Uri, title: String, size: Long): ParsedDocumentContent {
+internal fun parseDocxDocument(context: Context, uri: Uri, title: String, size: Long): ParsedDocumentContent {
     val blocks = mutableListOf<DocxContentBlock>()
     context.contentResolver.openInputStream(uri)?.use { inStream ->
         ZipInputStream(inStream).use { zip ->
@@ -1397,7 +1397,7 @@ private fun extractDocxText(xmlFragment: String): String {
     return Html.fromHtml(text, Html.FROM_HTML_MODE_LEGACY).toString().trim()
 }
 
-private fun parseXlsxDocument(context: Context, uri: Uri, title: String, size: Long): ParsedDocumentContent {
+internal fun parseXlsxDocument(context: Context, uri: Uri, title: String, size: Long): ParsedDocumentContent {
     val sharedStrings = mutableListOf<String>()
     var workbookXml = ""
     var workbookRelsXml = ""
@@ -1522,7 +1522,7 @@ private fun parseXlsxDocument(context: Context, uri: Uri, title: String, size: L
 private fun decodeOfficeXmlText(value: String): String =
     Html.fromHtml(value, Html.FROM_HTML_MODE_LEGACY).toString()
 
-private fun parsePptxDocument(context: Context, uri: Uri, title: String, size: Long): ParsedDocumentContent {
+internal fun parsePptxDocument(context: Context, uri: Uri, title: String, size: Long): ParsedDocumentContent {
     var presentationXml = ""
     var presentationRelsXml = ""
     val slideXmlByPath = mutableMapOf<String, String>()
