@@ -67,10 +67,12 @@ class PdfBoxDocumentEngine(private val context: Context) {
     ): File = withContext(Dispatchers.IO) {
         editSource(sourceUri, outputFileName) { document ->
             require(position in 0..document.numberOfPages) { "Invalid page insertion position." }
+            // Prefer the page immediately before the insertion point; at the
+            // beginning, use the first page as the size template.
             val reference = when {
                 document.numberOfPages == 0 -> null
-                position < document.numberOfPages -> document.getPage(position)
-                else -> document.getPage(document.numberOfPages - 1)
+                position > 0 -> document.getPage(position - 1)
+                else -> document.getPage(0)
             }
             val mediaBox = reference?.mediaBox ?: PDRectangle.LETTER
             val blank = PDPage(PDRectangle(mediaBox.width, mediaBox.height))
