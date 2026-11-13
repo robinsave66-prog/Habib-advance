@@ -26,7 +26,7 @@ class OfflineTesseractOcrEngineTest {
             assertEquals("Unexpected model size for $fileName", metadata.second, bytes.size.toLong())
             val sha1 = MessageDigest.getInstance("SHA-1")
                 .digest(bytes)
-                .joinToString("") { byte -> "%02x".format(byte) }
+                .joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
             assertEquals("Checksum mismatch for $fileName", metadata.first, sha1)
         }
     }
