@@ -10,6 +10,8 @@ import android.os.ParcelFileDescriptor
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
+import com.tom_roush.pdfbox.pdmodel.PDDocument
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
@@ -207,20 +209,12 @@ object AdvancedPdfOperationsEngine {
         val targetFile = File(docsDir, safeName)
         require(!targetFile.exists()) { "A file with this name already exists. Choose another name." }
 
-        val scaleFactor = when (compressionLevel) {
-            "Low" -> 0.90f
-            "Medium" -> 0.75f
-            "High" -> 0.55f
-            else -> 0.75f
+        // Lossless PDFBox rewrite: keeps native text, vector paths and page structure.
+        // PDFBox does not guarantee a smaller result for every source PDF; compression
+        // levels are retained for UI compatibility but do not trigger destructive rasterization.
+        require(compressionLevel in setOf("Low", "Medium", "High")) {
+            "Choose a supported compression preset."
         }
-        val jpegQuality = when (compressionLevel) {
-            "Low" -> 85
-            "Medium" -> 70
-            "High" -> 50
-            else -> 70
-        }
-
-        val compressedDoc = PdfDocument()
         val tempSource = File(context.cacheDir, "temp_compress_${java.util.UUID.randomUUID()}.pdf")
         try {
             context.contentResolver.openInputStream(sourceUri)?.use { input ->
@@ -228,69 +222,22 @@ object AdvancedPdfOperationsEngine {
             } ?: throw IllegalArgumentException("Cannot open the selected PDF.")
             require(tempSource.length() > 0L) { "The selected PDF is empty or unreadable." }
 
-            val pfd = ParcelFileDescriptor.open(tempSource, ParcelFileDescriptor.MODE_READ_ONLY)
-            try {
-                val renderer = PdfRenderer(pfd)
-                try {
-                    require(renderer.pageCount > 0) { "The selected PDF has no pages." }
-                    for (i in 0 until renderer.pageCount) {
-                        val page = renderer.openPage(i)
-                        try {
-                            val origW = page.width
-                            val origH = page.height
-                            val scaledW = (origW * scaleFactor).toInt().coerceAtLeast(1)
-                            val scaledH = (origH * scaleFactor).toInt().coerceAtLeast(1)
-                            val bitmap = Bitmap.createBitmap(scaledW, scaledH, Bitmap.Config.ARGB_8888)
-                            try {
-                                bitmap.eraseColor(Color.WHITE)
-                                val matrix = android.graphics.Matrix().apply { postScale(scaleFactor, scaleFactor) }
-                                page.render(bitmap, null, matrix, PdfRenderer.Page.RENDER_MODE_FOR_PRINT)
-
-                                val jpeg = ByteArrayOutputStream()
-                                check(bitmap.compress(Bitmap.CompressFormat.JPEG, jpegQuality, jpeg)) {
-                                    "Could not encode compressed page image."
-                                }
-                                val compressedBitmap = android.graphics.BitmapFactory.decodeByteArray(
-                                    jpeg.toByteArray(), 0, jpeg.size()
-                                ) ?: throw IllegalStateException("Could not decode compressed page image.")
-                                try {
-                                    val pageInfo = PdfDocument.PageInfo.Builder(origW, origH, i + 1).create()
-                                    val outputPage = compressedDoc.startPage(pageInfo)
-                                    outputPage.canvas.drawBitmap(
-                                        compressedBitmap,
-                                        null,
-                                        android.graphics.RectF(0f, 0f, origW.toFloat(), origH.toFloat()),
-                                        null
-                                    )
-                                    compressedDoc.finishPage(outputPage)
-                                } finally {
-                                    compressedBitmap.recycle()
-                                }
-                            } finally {
-                                bitmap.recycle()
-                            }
-                        } finally {
-                            page.close()
-                        }
-                    }
-                } finally {
-                    renderer.close()
-                }
-            } finally {
-                pfd.close()
+            PDFBoxResourceLoader.init(context)
+            PDDocument.load(tempSource).use { document ->
+                require(document.numberOfPages > 0) { "The selected PDF has no pages." }
+                document.save(targetFile)
             }
-
-            FileOutputStream(targetFile).use { output -> compressedDoc.writeTo(output) }
-            require(targetFile.exists() && targetFile.length() > 0L) { "Compression did not create a valid output file." }
+            require(targetFile.exists() && targetFile.length() > 0L) {
+                "PDF optimization did not create a valid output file."
+            }
             targetFile
         } catch (error: Exception) {
             targetFile.delete()
             throw IllegalStateException(
-                "PDF compression failed. No replacement or placeholder PDF was created: ${error.message}",
+                "Lossless PDF optimization failed. The original file was not changed: ${error.message}",
                 error
             )
         } finally {
-            compressedDoc.close()
             tempSource.delete()
         }
     }
