@@ -11,6 +11,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.core.content.FileProvider
 import com.example.engine.pdfbox.PdfBoxDocumentEngine
 import com.example.engine.pdfbox.PdfBoxOverlayExportEngine
+import com.example.engine.pdfbox.PdfNativeTextEditEngine
 import com.example.engine.core.IPdfRenderer
 import com.example.engine.core.PdfDocumentInfo
 import com.example.engine.core.PdfLoadResult
