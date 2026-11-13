@@ -23,10 +23,15 @@ class OfficeOpenXmlEditingEngine(private val context: Context) {
     suspend fun replaceDocxText(sourceUri: Uri, oldText: String, newText: String,
         outputFileName: String = "Edited_Document.docx"): File = withContext(Dispatchers.IO) {
         require(oldText.isNotEmpty()) { "Find text cannot be empty." }
+        var matchesAcrossPackage = 0
         editTextPackage(sourceUri, outputFileName, "docx") { name, bytes ->
             if (name.matches(Regex("word/(document|header\\d*|footer\\d*|footnotes|endnotes)\\.xml"))) {
                 val xml = parse(bytes)
-                if (replaceUnique(xml, WORD_NS, "t", oldText, newText, "DOCX")) serialize(xml) else bytes
+                if (replaceUnique(xml, WORD_NS, "t", oldText, newText, "DOCX")) {
+                    matchesAcrossPackage++
+                    require(matchesAcrossPackage == 1) { "Text occurs in more than one document part. Use a more specific phrase." }
+                    serialize(xml)
+                } else bytes
             } else bytes
         }
     }
@@ -34,10 +39,15 @@ class OfficeOpenXmlEditingEngine(private val context: Context) {
     suspend fun replacePptxText(sourceUri: Uri, oldText: String, newText: String,
         outputFileName: String = "Edited_Presentation.pptx"): File = withContext(Dispatchers.IO) {
         require(oldText.isNotEmpty()) { "Find text cannot be empty." }
+        var matchesAcrossPackage = 0
         editTextPackage(sourceUri, outputFileName, "pptx") { name, bytes ->
             if (name.matches(Regex("ppt/slides/slide\\d+\\.xml"))) {
                 val xml = parse(bytes)
-                if (replaceUnique(xml, DRAWING_NS, "t", oldText, newText, "PPTX")) serialize(xml) else bytes
+                if (replaceUnique(xml, DRAWING_NS, "t", oldText, newText, "PPTX")) {
+                    matchesAcrossPackage++
+                    require(matchesAcrossPackage == 1) { "Text occurs in more than one slide. Use a more specific phrase." }
+                    serialize(xml)
+                } else bytes
             } else bytes
         }
     }
