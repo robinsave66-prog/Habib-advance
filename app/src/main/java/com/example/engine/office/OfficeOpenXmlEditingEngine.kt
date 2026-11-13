@@ -27,7 +27,7 @@ class OfficeOpenXmlEditingEngine(private val context: Context) {
         editTextPackage(sourceUri, outputFileName, "docx") { name, bytes ->
             if (name.matches(Regex("word/(document|header\\d*|footer\\d*|footnotes|endnotes)\\.xml"))) {
                 val xml = parse(bytes)
-                if (replaceUnique(xml, WORD_NS, "t", oldText, newText, "DOCX")) {
+                if (replaceUnique(xml, WORD_NS, "p", "t", oldText, newText, "DOCX")) {
                     matchesAcrossPackage++
                     require(matchesAcrossPackage == 1) { "Text occurs in more than one document part. Use a more specific phrase." }
                     serialize(xml)
@@ -43,7 +43,7 @@ class OfficeOpenXmlEditingEngine(private val context: Context) {
         editTextPackage(sourceUri, outputFileName, "pptx") { name, bytes ->
             if (name.matches(Regex("ppt/slides/slide\\d+\\.xml"))) {
                 val xml = parse(bytes)
-                if (replaceUnique(xml, DRAWING_NS, "t", oldText, newText, "PPTX")) {
+                if (replaceUnique(xml, DRAWING_NS, "p", "t", oldText, newText, "PPTX")) {
                     matchesAcrossPackage++
                     require(matchesAcrossPackage == 1) { "Text occurs in more than one slide. Use a more specific phrase." }
                     serialize(xml)
@@ -220,16 +220,88 @@ class OfficeOpenXmlEditingEngine(private val context: Context) {
         return result
     }
 
-    private fun replaceUnique(xml: Document, namespace: String, tag: String,
+    /**
+     * Replaces a phrase across text runs inside one paragraph. Open XML producers commonly
+     * split a visible phrase across several runs (for example after applying bold to a word).
+     * The replacement inherits the first affected run's formatting; other run properties and
+     * paragraph structure are retained.
+     */
+    private fun replaceUnique(xml: Document, namespace: String, paragraphTag: String, textTag: String,
         old: String, replacement: String, format: String): Boolean {
-        val nodes = xml.getElementsByTagNameNS(namespace, tag)
-        val matches = (0 until nodes.length).map { nodes.item(it) }
-            .filter { it.textContent.contains(old) }
-        val count = matches.sumOf { occurrences(it.textContent, old) }
-        require(count <= 1) { "Text occurs more than once in this " + format + " part. Select a more specific phrase." }
-        if (count == 0) return false
-        matches.single().textContent = matches.single().textContent.replace(old, replacement)
+        val paragraphs = xml.getElementsByTagNameNS(namespace, paragraphTag)
+        val matches = mutableListOf<List<org.w3c.dom.Node>>()
+        val offsets = mutableListOf<Int>()
+        var totalMatches = 0
+
+        for (paragraphIndex in 0 until paragraphs.length) {
+            val paragraph = paragraphs.item(paragraphIndex)
+            val textNodes = paragraph.childTextNodes(namespace, textTag)
+            if (textNodes.isEmpty()) continue
+            val combined = textNodes.joinToString("") { it.textContent.orEmpty() }
+            val count = occurrences(combined, old)
+            if (count > 0) {
+                totalMatches += count
+                matches.add(textNodes)
+                offsets.add(combined.indexOf(old))
+            }
+        }
+
+        require(totalMatches <= 1) {
+            "Text occurs more than once in this " + format + " part. Select a more specific phrase."
+        }
+        if (totalMatches == 0) return false
+
+        val nodes = matches.single()
+        val start = offsets.single()
+        val end = start + old.length
+        var cursor = 0
+        var startNode = -1
+        var endNode = -1
+        var startOffset = 0
+        var endOffset = 0
+
+        nodes.forEachIndexed { index, node ->
+            val length = node.textContent.orEmpty().length
+            if (startNode < 0 && start >= cursor && start < cursor + length) {
+                startNode = index
+                startOffset = start - cursor
+            }
+            if (endNode < 0 && end > cursor && end <= cursor + length) {
+                endNode = index
+                endOffset = end - cursor
+            }
+            cursor += length
+        }
+        require(startNode >= 0 && endNode >= startNode) {
+            "Unable to map the selected phrase to editable text runs."
+        }
+
+        if (startNode == endNode) {
+            val text = nodes[startNode].textContent.orEmpty()
+            nodes[startNode].textContent = text.substring(0, startOffset) + replacement + text.substring(endOffset)
+            preserveSpaceIfNeeded(nodes[startNode] as? Element, nodes[startNode].textContent.orEmpty())
+        } else {
+            val firstText = nodes[startNode].textContent.orEmpty()
+            nodes[startNode].textContent = firstText.substring(0, startOffset) + replacement
+            preserveSpaceIfNeeded(nodes[startNode] as? Element, nodes[startNode].textContent.orEmpty())
+            for (index in startNode + 1 until endNode) nodes[index].textContent = ""
+            val lastText = nodes[endNode].textContent.orEmpty()
+            nodes[endNode].textContent = lastText.substring(endOffset)
+            preserveSpaceIfNeeded(nodes[endNode] as? Element, nodes[endNode].textContent.orEmpty())
+        }
         return true
+    }
+
+    private fun org.w3c.dom.Node.childTextNodes(namespace: String, textTag: String): List<org.w3c.dom.Node> {
+        val found = (this as? Element)?.getElementsByTagNameNS(namespace, textTag) ?: return emptyList()
+        return (0 until found.length).map { found.item(it) }
+    }
+
+    private fun preserveSpaceIfNeeded(element: Element?, value: String) {
+        if (element == null) return
+        if (value.startsWith(" ") || value.endsWith(" ")) {
+            element.setAttributeNS(XMLConstants.XML_NS_URI, "xml:space", "preserve")
+        }
     }
 
     private fun occurrences(text: String, needle: String): Int {
