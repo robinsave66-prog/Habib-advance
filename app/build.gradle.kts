@@ -169,9 +169,10 @@ val downloadOcrLanguageModels = tasks.register("downloadOcrLanguageModels") {
         }.getInputStream().use { input ->
           temporary.outputStream().use { output -> input.copyTo(output) }
         }
-        check(temporary.length() == expectedSize) {
+        val downloadedSize = temporary.length()
+        check(downloadedSize == expectedSize) {
           temporary.delete()
-          "Downloaded $language OCR model has an unexpected size: ${temporary.length()}"
+          "Downloaded $language OCR model has an unexpected size: $downloadedSize"
         }
         val sha1 = java.security.MessageDigest.getInstance("SHA-1")
           .digest(temporary.readBytes())
