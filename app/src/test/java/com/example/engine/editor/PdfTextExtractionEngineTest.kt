@@ -45,7 +45,7 @@ class PdfTextExtractionEngineTest {
     }
 
     @Test
-    fun extractsNativePdfTextAndRealGlyphBoundsWithoutBitmap() = runBlocking {
+    fun extractsNativePdfTextAndRealGlyphBoundsWithoutBitmap() {\n        runBlocking {
         val words = PdfTextExtractionEngine.extractWordsFromPage(
             context = context,
             pageBitmap = null,
@@ -66,7 +66,7 @@ class PdfTextExtractionEngineTest {
     }
 
     @Test
-    fun returnsNoFabricatedWordsForBlankPdfPage() = runBlocking {
+    fun returnsNoFabricatedWordsForBlankPdfPage() {\n        runBlocking {
         val blank = File(context.cacheDir, "blank-text-extraction-test.pdf")
         PDDocument().use { document ->
             document.addPage(PDPage(PDRectangle(420f, 600f)))
@@ -87,7 +87,7 @@ class PdfTextExtractionEngineTest {
     }
 
     @Test
-    fun invalidPageIndexReturnsNoText() = runBlocking {
+    fun invalidPageIndexReturnsNoText() {\n        runBlocking {
         val words = PdfTextExtractionEngine.extractWordsFromPage(
             context = context,
             pageBitmap = null,
