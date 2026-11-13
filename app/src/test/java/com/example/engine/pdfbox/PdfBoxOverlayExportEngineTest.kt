@@ -154,9 +154,14 @@ class PdfBoxOverlayExportEngineTest {
             try {
                 var changedPixels = 0
                 val left = (overlay.x * 2f).toInt().coerceAtLeast(0)
-                val top = (overlay.y * 2f).toInt().coerceAtLeast(0)
+                // Editor coordinates use a top-left origin; PDFRenderer also returns
+                // a top-left bitmap, while the PDF content stream stores the overlay
+                // using a bottom-left origin. Convert the overlay's Y position back
+                // to bitmap coordinates before comparing the rendered region.
+                val pageHeight = result.getPage(0).mediaBox.height
+                val top = ((pageHeight - overlay.y - overlay.height) * 2f).toInt().coerceAtLeast(0)
                 val right = ((overlay.x + overlay.width) * 2f).toInt().coerceAtMost(rendered.width)
-                val bottom = ((overlay.y + overlay.height) * 2f).toInt().coerceAtMost(rendered.height)
+                val bottom = ((pageHeight - overlay.y) * 2f).toInt().coerceAtMost(rendered.height)
                 for (y in top until bottom) {
                     for (x in left until right) {
                         val actual = rendered.getPixel(x, y)
