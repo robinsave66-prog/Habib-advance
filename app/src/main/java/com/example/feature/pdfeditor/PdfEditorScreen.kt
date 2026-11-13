@@ -1522,7 +1522,27 @@ private fun EditorElementView(
                             drawLine(shapeColor, Offset(0f, 0f), Offset(size.width, size.height), strokeWidth = strokeW)
                         }
                         ShapeType.ARROW -> {
-                            drawLine(shapeColor, Offset(0f, size.height / 2f), Offset(size.width, size.height / 2f), strokeWidth = strokeW)
+                            val centerY = size.height / 2f
+                            val headLength = 10f * pxPerPt
+                            val headHalfHeight = 6f * pxPerPt
+                            drawLine(
+                                shapeColor,
+                                Offset(0f, centerY),
+                                Offset(size.width, centerY),
+                                strokeWidth = strokeW
+                            )
+                            drawLine(
+                                shapeColor,
+                                Offset(size.width - headLength, centerY - headHalfHeight),
+                                Offset(size.width, centerY),
+                                strokeWidth = strokeW
+                            )
+                            drawLine(
+                                shapeColor,
+                                Offset(size.width - headLength, centerY + headHalfHeight),
+                                Offset(size.width, centerY),
+                                strokeWidth = strokeW
+                            )
                         }
                         ShapeType.HIGHLIGHT_BOX -> {
                             drawRect(shapeColor.copy(alpha = 0.35f))
