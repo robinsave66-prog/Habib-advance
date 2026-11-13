@@ -1,4 +1,7 @@
 import com.google.gms.googleservices.GoogleServicesPlugin.MissingGoogleServicesStrategy
+import java.io.File
+import java.net.URL
+import java.security.MessageDigest
 
 plugins {
   alias(libs.plugins.android.application)
@@ -159,11 +162,11 @@ val downloadOcrLanguageModels = tasks.register("downloadOcrLanguageModels") {
   doLast {
     val directory = modelDirectory.asFile.apply { mkdirs() }
     ocrModelSpecs.forEach { (language, _, expectedSize) ->
-      val target = java.io.File(directory, "$language.traineddata")
+      val target = File(directory, "$language.traineddata")
       if (!target.exists() || target.length() != expectedSize) {
-        val temporary = java.io.File(directory, "$language.traineddata.download")
+        val temporary = File(directory, "$language.traineddata.download")
         val modelUrl = "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/87416418657359cb625c412a48b6e1d6d41c29bd/$language.traineddata"
-        java.net.URL(modelUrl).openConnection().apply {
+        URL(modelUrl).openConnection().apply {
           connectTimeout = 20000
           readTimeout = 60000
         }.getInputStream().use { input ->
@@ -174,9 +177,9 @@ val downloadOcrLanguageModels = tasks.register("downloadOcrLanguageModels") {
           temporary.delete()
           "Downloaded $language OCR model has an unexpected size: $downloadedSize"
         }
-        val sha1 = java.security.MessageDigest.getInstance("SHA-1")
+        val sha1 = MessageDigest.getInstance("SHA-1")
           .digest(temporary.readBytes())
-          .joinToString("") { byte -> "%02x".format(byte) }
+          .joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
         val expectedSha1 = ocrModelSpecs.first { it.first == language }.second
         check(sha1 == expectedSha1) {
           temporary.delete()
