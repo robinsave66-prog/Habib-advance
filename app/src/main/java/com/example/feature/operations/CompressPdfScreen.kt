@@ -194,9 +194,9 @@ fun CompressPdfScreen(
                     Text("2. Compression Preset", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
 
                     listOf(
-                        Triple("Low", "High Quality", "Gentler image downsampling with higher JPEG quality."),
-                        Triple("Medium", "Balanced (Recommended)", "Balanced page-image size and visual clarity."),
-                        Triple("High", "Maximum Compression", "Smaller page images with more visible quality loss.")
+                        Triple("Low", "High Quality", "Lossless PDF rewrite; prioritizes preserving original content."),
+                        Triple("Medium", "Balanced (Recommended)", "Lossless PDF rewrite with native text and vector content preserved."),
+                        Triple("High", "Maximum Compression", "Lossless PDF rewrite; file-size reduction is not guaranteed.")
                     ).forEach { (level, title, desc) ->
                         val isSelected = compressionLevel.equals(level, ignoreCase = true)
                         Surface(
@@ -232,7 +232,7 @@ fun CompressPdfScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
-                            text = "Important: This compression method converts each PDF page into a JPEG image. Text will no longer be selectable or searchable, and vector content/forms may be flattened. Keep the original PDF if you need editable content.",
+                            text = "Important: This tool performs a lossless PDF rewrite and preserves searchable text and vector content. It does not rasterize pages, but a smaller file size is not guaranteed for every PDF.",
                             modifier = Modifier.padding(12.dp),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onErrorContainer
