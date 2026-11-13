@@ -69,6 +69,40 @@ class OfficeOpenXmlEditingEngineTest {
         }
     }
 
+    @Test fun docxReplacementCanSpanMultipleFormattedRuns() {
+        val file = zip("office-split-runs.docx", mapOf(
+            "word/document.xml" to """<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:rPr><w:b/></w:rPr><w:t>Hello </w:t></w:r><w:r><w:rPr><w:i/></w:rPr><w:t>Habib</w:t></w:r><w:r><w:t>!</w:t></w:r></w:p></w:body></w:document>"""
+        ))
+        val out = runBlocking { engine.replaceDocxText(Uri.fromFile(file), "Hello Habib", "New Editor", "edited-split-runs.docx") }
+        ZipFile(out).use { zip ->
+            val xml = DocumentBuilderFactory.newInstance().apply { isNamespaceAware = true }
+                .newDocumentBuilder().parse(zip.getInputStream(zip.getEntry("word/document.xml")))
+            val texts = xml.getElementsByTagNameNS(
+                "http://schemas.openxmlformats.org/wordprocessingml/2006/main", "t"
+            )
+            val combined = (0 until texts.length).joinToString("") { texts.item(it).textContent }
+            assertEquals("New Editor!", combined)
+            assertTrue(zip.getInputStream(zip.getEntry("word/document.xml")).bufferedReader().readText().contains("w:i"))
+        }
+    }
+
+    @Test fun pptxReplacementCanSpanMultipleTextRuns() {
+        val file = zip("office-split-runs.pptx", mapOf(
+            "ppt/slides/slide1.xml" to """<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:rPr b="1"/><a:t>Quarter</a:t></a:r><a:r><a:rPr i="1"/><a:t>ly Report</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>"""
+        ))
+        val out = runBlocking { engine.replacePptxText(Uri.fromFile(file), "Quarterly Report", "Annual Review", "edited-split-runs.pptx") }
+        ZipFile(out).use { zip ->
+            val xml = DocumentBuilderFactory.newInstance().apply { isNamespaceAware = true }
+                .newDocumentBuilder().parse(zip.getInputStream(zip.getEntry("ppt/slides/slide1.xml")))
+            val texts = xml.getElementsByTagNameNS(
+                "http://schemas.openxmlformats.org/drawingml/2006/main", "t"
+            )
+            val combined = (0 until texts.length).joinToString("") { texts.item(it).textContent }
+            assertEquals("Annual Review", combined)
+            assertTrue(zip.getInputStream(zip.getEntry("ppt/slides/slide1.xml")).bufferedReader().readText().contains("i=\"1\""))
+        }
+    }
+
     @Test fun repeatedDocxTextIsRejectedRatherThanChangingMultipleLocations() {
         val file = zip("office-ambiguous.docx", mapOf(
             "word/document.xml" to """<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>same same</w:t></w:r></w:p></w:body></w:document>"""
