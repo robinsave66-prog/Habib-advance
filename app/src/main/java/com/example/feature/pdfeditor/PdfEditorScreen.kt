@@ -1358,7 +1358,7 @@ fun PdfEditorScreen(
             text = {
                 Column {
                     Text(
-                        text = "A new PDF copy will be created and the original file will remain untouched. Current export flattens each original page to an image before adding overlays, so original text may not remain selectable or searchable.",
+                        text = "A new PDF copy will be created and the original file will remain untouched. Existing PDF page content is preserved as PDF content (not flattened to page images). Added objects are appended as overlays; this does not directly replace existing PDF text objects. Built-in text export currently supports standard Latin characters; Bengali and Arabic need an embedded font.",
                         style = MaterialTheme.typography.bodyMedium
                     )
                     Spacer(modifier = Modifier.height(12.dp))
@@ -1396,7 +1396,7 @@ fun PdfEditorScreen(
             file = success.exportedFile,
             additionalDetails = listOf(
                 "Pages" to "${viewModel.elements.value.size.coerceAtLeast(1)} modified pages",
-                "Export" to "Flattened-page PDF with overlays"
+                "Export" to "Original PDF content preserved with vector overlays"
             ),
             onDismiss = { viewModel.resetExportStatus() },
             onOpenFile = {
