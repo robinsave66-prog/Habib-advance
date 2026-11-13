@@ -900,7 +900,7 @@ fun PdfEditorScreen(
                                     },
                                     onCut = {
                                         val text = viewModel.cutSelectedWords(context)
-                                        Toast.makeText(context, "Cut: \"$text\"", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, "Copied and visually covered. Original PDF text remains underneath.", Toast.LENGTH_LONG).show()
                                     },
                                     onPaste = {
                                         val first = selectedWords.first()
@@ -921,7 +921,7 @@ fun PdfEditorScreen(
                                     },
                                     onDelete = {
                                         viewModel.deleteSelectedWords()
-                                        Toast.makeText(context, "Text deleted & redacted", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, "Text covered visually only. Original PDF text remains in the file.", Toast.LENGTH_LONG).show()
                                     },
                                     onSelectAll = { viewModel.selectAllWordsOnCurrentPage() },
                                     onChangeColor = {
@@ -961,6 +961,19 @@ fun PdfEditorScreen(
                     modifier = Modifier.verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
+                    if (selectedWords.isNotEmpty() && !isEditingExistingElement) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.45f),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text(
+                                "This operation places a cover over the selected text and adds a new text overlay. The original PDF text remains underneath and may still be extracted. This is not secure redaction or direct editing of the original text object.",
+                                modifier = Modifier.padding(12.dp),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                        }
+                    }
                     OutlinedTextField(
                         value = textInput,
                         onValueChange = { textInput = it },
