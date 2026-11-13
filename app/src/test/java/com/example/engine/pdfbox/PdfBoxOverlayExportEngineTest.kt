@@ -48,7 +48,8 @@ class PdfBoxOverlayExportEngineTest {
     }
 
     @Test
-    fun exportMapsOverlayCoordinatesForClockwiseRotatedPage() = runBlocking {
+    fun exportMapsOverlayCoordinatesForClockwiseRotatedPage() {
+        runBlocking {
         val rotatedSource = File(context.cacheDir, "vector-export-rotated-source.pdf")
         PDDocument().use { document ->
             val page = PDPage(PDRectangle(420f, 600f))
@@ -82,10 +83,12 @@ class PdfBoxOverlayExportEngineTest {
         assertTrue(rotatedSource.exists())
         assertTrue(output.length() > 0L)
         rotatedSource.delete()
+        }
     }
 
     @Test
-    fun exportAppendsTextAndPreservesOriginalSearchablePageContent() = runBlocking {
+    fun exportAppendsTextAndPreservesOriginalSearchablePageContent() {
+        runBlocking {
         val overlay = TextElement(
             pageIndex = 0,
             x = 40f,
@@ -110,5 +113,6 @@ class PdfBoxOverlayExportEngineTest {
         }
         assertTrue(output.length() > 0L)
         assertTrue(source.exists())
+        }
     }
 }
