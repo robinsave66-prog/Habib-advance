@@ -8,6 +8,8 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import androidx.core.content.FileProvider
+import com.example.engine.pdfbox.PdfBoxDocumentEngine
 import com.example.engine.core.IPdfRenderer
 import com.example.engine.core.PdfDocumentInfo
 import com.example.engine.core.PdfLoadResult
@@ -61,6 +63,7 @@ class PdfEditorViewModel(
 ) : ViewModel() {
 
     private val renderer: IPdfRenderer = AndroidNativePdfRenderer(context)
+    private val pageEngine = PdfBoxDocumentEngine(context)
 
     private val _status = MutableStateFlow<EditorUiStatus>(EditorUiStatus.Idle)
     val status: StateFlow<EditorUiStatus> = _status.asStateFlow()
@@ -554,6 +557,95 @@ class PdfEditorViewModel(
             }
             map + (page to pageList)
         }
+    }
+
+    // --- Native PDF page operations (PDFBox; preserves PDF page objects) ---
+
+    private fun applyPageOperation(
+        progress: String,
+        outputName: String,
+        operation: suspend (Uri, String) -> File,
+        pageAfter: Int = _currentPage.value
+    ) {
+        val source = sourceDocUri ?: return
+        _status.value = EditorUiStatus.Exporting(progress)
+        viewModelScope.launch {
+            try {
+                val output = operation(source, outputName)
+                val outputUri = FileProvider.getUriForFile(
+                    context,
+                    "${context.packageName}.fileprovider",
+                    output
+                )
+                when (val loaded = renderer.openDocument(outputUri)) {
+                    is PdfLoadResult.Success -> {
+                        sourceDocUri = outputUri
+                        _elements.value = emptyMap()
+                        _detectedWords.value = emptyMap()
+                        _selectedWords.value = emptyList()
+                        _selectedElementId.value = null
+                        _currentPage.value = pageAfter.coerceIn(0, loaded.documentInfo.pageCount - 1)
+                        _pageDimensions.value = renderer.getPageDimensions(_currentPage.value) ?: Pair(595, 842)
+                        _status.value = EditorUiStatus.Loaded(loaded.documentInfo)
+                    }
+                    is PdfLoadResult.PasswordRequired -> _status.value = EditorUiStatus.Error(loaded.message)
+                    is PdfLoadResult.Corrupted -> _status.value = EditorUiStatus.Error(loaded.message)
+                    is PdfLoadResult.Error -> _status.value = EditorUiStatus.Error(
+                        loaded.throwable.localizedMessage ?: "Could not reopen edited PDF"
+                    )
+                }
+            } catch (error: Exception) {
+                _status.value = EditorUiStatus.Error(error.localizedMessage ?: "PDF page operation failed")
+            }
+        }
+    }
+
+    fun deleteCurrentPage() {
+        val page = _currentPage.value
+        applyPageOperation(
+            "Deleting page…", "Page_Delete_${System.currentTimeMillis()}.pdf",
+            { uri, name -> pageEngine.deletePages(uri, setOf(page), name) },
+            (page - 1).coerceAtLeast(0)
+        )
+    }
+
+    fun insertBlankPageAfterCurrent() {
+        val page = _currentPage.value
+        applyPageOperation(
+            "Inserting blank page…", "Page_Insert_${System.currentTimeMillis()}.pdf",
+            { uri, name -> pageEngine.insertBlankPage(uri, page + 1, name) },
+            page + 1
+        )
+    }
+
+    fun rotateCurrentPage() {
+        val page = _currentPage.value
+        applyPageOperation(
+            "Rotating page…", "Page_Rotate_${System.currentTimeMillis()}.pdf",
+            { uri, name -> pageEngine.rotatePages(uri, setOf(page), 90, name) },
+            page
+        )
+    }
+
+    fun extractCurrentPage() {
+        val page = _currentPage.value
+        applyPageOperation(
+            "Extracting current page…", "Page_Extract_${System.currentTimeMillis()}.pdf",
+            { uri, name -> pageEngine.extractPages(uri, listOf(page), name) },
+            0
+        )
+    }
+
+    fun mergePdfDocuments(uris: List<Uri>) {
+        if (uris.size < 2) {
+            _status.value = EditorUiStatus.Error("Select at least two PDF files to merge.")
+            return
+        }
+        applyPageOperation(
+            "Merging PDF files…", "Merged_Document_${System.currentTimeMillis()}.pdf",
+            { _, name -> pageEngine.mergePdfs(uris, name) },
+            0
+        )
     }
 
     // --- Export & Save ---
