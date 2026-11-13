@@ -77,4 +77,35 @@ class PdfBoxDocumentEngineTest {
             assertEquals(300f, document.getPage(1).mediaBox.width, 0.01f)
         }
     }
+
+    @Test
+    fun rotatePagesChangesPageRotationWithoutChangingPageCount() = runBlocking {
+        val output = engine.rotatePages(Uri.fromFile(source), setOf(0, 2), 90, "rotated-page-test.pdf")
+        PDDocument.load(output).use { document ->
+            assertEquals(3, document.numberOfPages)
+            assertEquals(90, document.getPage(0).rotation)
+            assertEquals(0, document.getPage(1).rotation)
+            assertEquals(90, document.getPage(2).rotation)
+        }
+    }
+
+    @Test
+    fun mergePdfsCombinesPagesFromBothSources() = runBlocking {
+        val second = File(context.cacheDir, "second-merge-source.pdf")
+        PDDocument().use { document ->
+            document.addPage(PDPage(PDRectangle(250f, 350f)))
+            document.save(second)
+        }
+        val output = engine.mergePdfs(
+            listOf(Uri.fromFile(source), Uri.fromFile(second)),
+            "merged-pdf-test.pdf"
+        )
+        PDDocument.load(output).use { document ->
+            assertEquals(4, document.numberOfPages)
+            assertEquals(500f, document.getPage(2).mediaBox.width, 0.01f)
+            assertEquals(250f, document.getPage(3).mediaBox.width, 0.01f)
+        }
+        second.delete()
+    }
+
 }
