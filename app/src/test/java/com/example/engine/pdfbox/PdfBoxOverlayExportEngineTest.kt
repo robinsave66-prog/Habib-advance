@@ -48,6 +48,43 @@ class PdfBoxOverlayExportEngineTest {
     }
 
     @Test
+    fun exportMapsOverlayCoordinatesForClockwiseRotatedPage() = runBlocking {
+        val rotatedSource = File(context.cacheDir, "vector-export-rotated-source.pdf")
+        PDDocument().use { document ->
+            val page = PDPage(PDRectangle(420f, 600f))
+            page.rotation = 90
+            document.addPage(page)
+            document.save(rotatedSource)
+        }
+
+        // Coordinates are expressed in the rotated page view (600 x 420 points).
+        val overlay = TextElement(
+            pageIndex = 0,
+            x = 100f,
+            y = 50f,
+            width = 120f,
+            height = 24f,
+            text = "Rotated overlay text",
+            fontSizePt = 12f
+        )
+        val output = engine.export(
+            Uri.fromFile(rotatedSource),
+            mapOf(0 to listOf(overlay)),
+            "rotated-vector-overlay-test.pdf"
+        )
+
+        PDDocument.load(output).use { result ->
+            assertEquals(90, result.getPage(0).rotation)
+            assertEquals(420f, result.getPage(0).mediaBox.width, 0.01f)
+            assertEquals(600f, result.getPage(0).mediaBox.height, 0.01f)
+            assertTrue(PDFTextStripper().getText(result).contains("Rotated overlay text"))
+        }
+        assertTrue(rotatedSource.exists())
+        assertTrue(output.length() > 0L)
+        rotatedSource.delete()
+    }
+
+    @Test
     fun exportAppendsTextAndPreservesOriginalSearchablePageContent() = runBlocking {
         val overlay = TextElement(
             pageIndex = 0,
