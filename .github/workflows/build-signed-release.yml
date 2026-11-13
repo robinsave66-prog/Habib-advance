@@ -87,6 +87,16 @@ jobs:
           APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
           "$APKSIGNER" verify --verbose --print-certs "$APK"
 
+      - name: Run Android OCR and secure-redaction instrumentation tests
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: gradle --no-daemon --no-configuration-cache connectedDebugAndroidTest
+
       - name: Publish the single root APK
         if: ${{ github.ref == 'refs/heads/main' || inputs.publish_apk == true }}
         run: |
