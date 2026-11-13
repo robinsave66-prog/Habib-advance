@@ -73,6 +73,9 @@ import com.example.ui.components.UniversalResultDialog
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
+import com.tom_roush.pdfbox.pdmodel.PDDocument
+import com.tom_roush.pdfbox.text.PDFTextStripper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
@@ -411,27 +414,25 @@ fun OcrScannerScreen(
 }
 
 private suspend fun runMlKitImageOcr(context: Context, uri: Uri): String = withContext(Dispatchers.IO) {
+    val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
     try {
         val inputImage = InputImage.fromFilePath(context, uri)
-        val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
-        val visionText = recognizer.process(inputImage).await()
-        visionText.text
+        recognizer.process(inputImage).await().text
     } catch (_: Exception) {
-        // Fallback to bitmap stream analysis if direct file path fails
         try {
-            val stream = context.contentResolver.openInputStream(uri)
-            val bitmap = BitmapFactory.decodeStream(stream)
-            stream?.close()
-            if (bitmap != null) {
-                val inputImage = InputImage.fromBitmap(bitmap, 0)
-                val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
-                val visionText = recognizer.process(inputImage).await()
-                bitmap.recycle()
-                visionText.text
-            } else ""
+            context.contentResolver.openInputStream(uri)?.use { stream ->
+                val bitmap = BitmapFactory.decodeStream(stream) ?: return@use ""
+                try {
+                    recognizer.process(InputImage.fromBitmap(bitmap, 0)).await().text
+                } finally {
+                    bitmap.recycle()
+                }
+            }.orEmpty()
         } catch (_: Exception) {
             ""
         }
+    } finally {
+        recognizer.close()
     }
 }
 
@@ -440,51 +441,83 @@ private suspend fun runMlKitPdfOcr(
     pdfUri: Uri,
     onProgress: (current: Int, total: Int) -> Unit
 ): String = withContext(Dispatchers.IO) {
-    val sb = java.lang.StringBuilder()
-    val tempFile = File(context.cacheDir, "temp_ocr_${System.currentTimeMillis()}.pdf")
+    val output = StringBuilder()
+    val tempFile = File(context.cacheDir, "temp_ocr_${java.util.UUID.randomUUID()}.pdf")
     try {
         context.contentResolver.openInputStream(pdfUri)?.use { input ->
-            FileOutputStream(tempFile).use { output -> input.copyTo(output) }
-        }
+            FileOutputStream(tempFile).use { fileOutput -> input.copyTo(fileOutput) }
+        } ?: return@withContext ""
 
-        if (tempFile.exists() && tempFile.length() > 0) {
-            val pfd = ParcelFileDescriptor.open(tempFile, ParcelFileDescriptor.MODE_READ_ONLY)
+        require(tempFile.length() > 0L) { "The selected PDF is empty or unreadable." }
+        PDFBoxResourceLoader.init(context)
+
+        // Prefer searchable native PDF text; run OCR only on pages with no extractable text.
+        val nativeDocument = try { PDDocument.load(tempFile) } catch (_: Exception) { null }
+        val pfd = ParcelFileDescriptor.open(tempFile, ParcelFileDescriptor.MODE_READ_ONLY)
+        try {
             val renderer = PdfRenderer(pfd)
-            val pageCount = renderer.pageCount
-            val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
-
-            for (i in 0 until pageCount) {
-                onProgress(i + 1, pageCount)
-                val page = renderer.openPage(i)
-                val renderWidth = (page.width * 1.5f).toInt()
-                val renderHeight = (page.height * 1.5f).toInt()
-
-                val bmp = Bitmap.createBitmap(renderWidth, renderHeight, Bitmap.Config.ARGB_8888)
-                bmp.eraseColor(android.graphics.Color.WHITE)
-                page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_PRINT)
-                page.close()
-
+            try {
+                val total = renderer.pageCount
+                if (total == 0) return@withContext ""
+                val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
                 try {
-                    val inputImage = InputImage.fromBitmap(bmp, 0)
-                    val result = recognizer.process(inputImage).await()
-                    if (result.text.isNotBlank()) {
-                        sb.append("--- PAGE ${i + 1} ---\n")
-                        sb.append(result.text)
-                        sb.append("\n\n")
+                    for (index in 0 until total) {
+                        onProgress(index + 1, total)
+                        var pageText = ""
+                        if (nativeDocument != null && index < nativeDocument.numberOfPages) {
+                            try {
+                                val stripper = PDFTextStripper().apply {
+                                    startPage = index + 1
+                                    endPage = index + 1
+                                    sortByPosition = true
+                                }
+                                pageText = stripper.getText(nativeDocument).trim()
+                            } catch (_: Exception) {
+                                pageText = ""
+                            }
+                        }
+
+                        if (pageText.isBlank()) {
+                            val page = renderer.openPage(index)
+                            try {
+                                val bitmap = Bitmap.createBitmap(
+                                    (page.width * 1.5f).toInt().coerceAtLeast(1),
+                                    (page.height * 1.5f).toInt().coerceAtLeast(1),
+                                    Bitmap.Config.ARGB_8888
+                                )
+                                try {
+                                    bitmap.eraseColor(android.graphics.Color.WHITE)
+                                    page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_PRINT)
+                                    pageText = recognizer.process(InputImage.fromBitmap(bitmap, 0)).await().text.trim()
+                                } finally {
+                                    bitmap.recycle()
+                                }
+                            } finally {
+                                page.close()
+                            }
+                        }
+
+                        if (pageText.isNotBlank()) {
+                            output.append("--- PAGE ${index + 1} ---\n")
+                            output.append(pageText).append("\n\n")
+                        }
                     }
-                } catch (_: Exception) {}
-
-                bmp.recycle()
+                } finally {
+                    recognizer.close()
+                }
+            } finally {
+                renderer.close()
             }
-
-            renderer.close()
+        } finally {
             pfd.close()
+            nativeDocument?.close()
         }
     } catch (_: Exception) {
+        // Return only text actually extracted; caller displays a no-text/error state.
     } finally {
         tempFile.delete()
     }
-    sb.toString()
+    output.toString()
 }
 
 private suspend fun exportOcrToDocx(context: Context, text: String): File = withContext(Dispatchers.IO) {
