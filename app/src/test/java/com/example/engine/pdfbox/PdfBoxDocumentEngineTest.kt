@@ -42,8 +42,8 @@ class PdfBoxDocumentEngineTest {
         val output = engine.deletePages(Uri.fromFile(source), setOf(1), "deleted-page-test.pdf")
         PDDocument.load(output).use { document ->
             assertEquals(2, document.numberOfPages)
-            assertEquals(300f, document.getPage(0).mediaBox.width)
-            assertEquals(500f, document.getPage(1).mediaBox.width)
+            assertEquals(300f, document.getPage(0).mediaBox.width, 0.01f)
+            assertEquals(500f, document.getPage(1).mediaBox.width, 0.01f)
         }
     }
 
@@ -52,9 +52,9 @@ class PdfBoxDocumentEngineTest {
         val output = engine.reorderPages(Uri.fromFile(source), listOf(2, 0, 1), "reordered-page-test.pdf")
         PDDocument.load(output).use { document ->
             assertEquals(3, document.numberOfPages)
-            assertEquals(500f, document.getPage(0).mediaBox.width)
-            assertEquals(300f, document.getPage(1).mediaBox.width)
-            assertEquals(400f, document.getPage(2).mediaBox.width)
+            assertEquals(500f, document.getPage(0).mediaBox.width, 0.01f)
+            assertEquals(300f, document.getPage(1).mediaBox.width, 0.01f)
+            assertEquals(400f, document.getPage(2).mediaBox.width, 0.01f)
         }
     }
 
@@ -63,7 +63,7 @@ class PdfBoxDocumentEngineTest {
         val output = engine.insertBlankPage(Uri.fromFile(source), 1, "inserted-page-test.pdf")
         PDDocument.load(output).use { document ->
             assertEquals(4, document.numberOfPages)
-            assertEquals(300f, document.getPage(1).mediaBox.width)
+            assertEquals(300f, document.getPage(1).mediaBox.width, 0.01f)
             assertTrue(document.getPage(1).annotations.isEmpty())
         }
     }
