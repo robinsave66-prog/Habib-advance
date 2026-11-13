@@ -656,6 +656,51 @@ class PdfEditorViewModel(
         }
     }
 
+    fun deleteSelectedPages(pageIndices: List<Int>) {
+        val selected = pageIndices.toSortedSet()
+        if (selected.isEmpty()) {
+            _status.value = EditorUiStatus.Error("Select at least one page.")
+            return
+        }
+        val count = renderer.getPageCount()
+        if (selected.any { it !in 0 until count } || selected.size >= count) {
+            _status.value = EditorUiStatus.Error("Select valid pages. A PDF must keep at least one page.")
+            return
+        }
+        val firstRemaining = (0 until count).firstOrNull { it !in selected } ?: 0
+        applyPageOperation(
+            "Deleting " + selected.size + " pages…", "Pages_Delete_" + System.currentTimeMillis() + ".pdf",
+            { uri, name -> pageEngine.deletePages(uri, selected, name) },
+            (firstRemaining - selected.count { it < firstRemaining }).coerceAtLeast(0),
+            { elements -> elements.mapNotNull { (oldIndex, items) ->
+                if (oldIndex in selected) null
+                else (oldIndex - selected.count { it < oldIndex }) to items
+            }.toMap() }
+        )
+    }
+
+    fun extractSelectedPages(pageIndices: List<Int>) {
+        val selected = pageIndices.distinct().sorted()
+        if (selected.isEmpty()) {
+            _status.value = EditorUiStatus.Error("Select at least one page.")
+            return
+        }
+        val count = renderer.getPageCount()
+        if (selected.any { it !in 0 until count }) {
+            _status.value = EditorUiStatus.Error("One or more selected pages are outside the document.")
+            return
+        }
+        val newIndexByOld = selected.withIndex().associate { (newIndex, oldIndex) -> oldIndex to newIndex }
+        applyPageOperation(
+            "Extracting " + selected.size + " pages…", "Pages_Extract_" + System.currentTimeMillis() + ".pdf",
+            { uri, name -> pageEngine.extractPages(uri, selected, name) },
+            0,
+            { elements -> elements.mapNotNull { (oldIndex, items) ->
+                newIndexByOld[oldIndex]?.let { it to items }
+            }.toMap() }
+        )
+    }
+
     fun deleteCurrentPage() {
         val page = _currentPage.value
         applyPageOperation(

@@ -150,6 +150,7 @@ fun PdfEditorScreen(
 
     var showSaveDialog by remember { mutableStateOf(false) }
     var showPageOperationsDialog by remember { mutableStateOf(false) }
+    var pageSelectionInput by remember { mutableStateOf("1") }
     var saveFileNameInput by remember { mutableStateOf("Edited_${documentName ?: "Document.pdf"}") }
 
     // Text Insertion / Edit Dialog State
@@ -1316,6 +1317,42 @@ fun PdfEditorScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    OutlinedTextField(
+                        value = pageSelectionInput,
+                        onValueChange = { pageSelectionInput = it },
+                        label = { Text("Select pages") },
+                        placeholder = { Text("Example: 1, 3-5") },
+                        supportingText = { Text("Enter page numbers separated by commas; ranges are supported.") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().testTag("pdf_page_selection_input")
+                    )
+                    val selectedPages = parsePdfPageSelection(
+                        pageSelectionInput,
+                        (status as? EditorUiStatus.Loaded)?.documentInfo?.pageCount ?: 0
+                    )
+                    Text(
+                        selectedPages?.let { it.size.toString() + " page(s) selected" }
+                            ?: "Enter valid page numbers within the document.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    OutlinedButton(
+                        onClick = {
+                            showPageOperationsDialog = false
+                            selectedPages?.let(viewModel::deleteSelectedPages)
+                        },
+                        enabled = !selectedPages.isNullOrEmpty() &&
+                            selectedPages.size < ((status as? EditorUiStatus.Loaded)?.documentInfo?.pageCount ?: 0),
+                        modifier = Modifier.fillMaxWidth().testTag("pdf_delete_selected_pages")
+                    ) { Text("Delete Selected Pages") }
+                    OutlinedButton(
+                        onClick = {
+                            showPageOperationsDialog = false
+                            selectedPages?.let(viewModel::extractSelectedPages)
+                        },
+                        enabled = !selectedPages.isNullOrEmpty(),
+                        modifier = Modifier.fillMaxWidth().testTag("pdf_extract_selected_pages")
+                    ) { Text("Extract Selected Pages") }
                     OutlinedButton(
                         onClick = { showPageOperationsDialog = false; viewModel.duplicateCurrentPage() },
                         modifier = Modifier.fillMaxWidth()
@@ -1670,6 +1707,26 @@ private fun EditorToolButton(
             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
             color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
         )
+    }
+}
+
+private fun parsePdfPageSelection(input: String, pageCount: Int): List<Int>? {
+    if (input.isBlank() || pageCount <= 0) return null
+    val selected = sortedSetOf<Int>()
+    return try {
+        input.split(",").forEach { raw ->
+            val token = raw.trim()
+            require(token.isNotEmpty())
+            val range = Regex("^([1-9][0-9]*)(?:\\s*-\\s*([1-9][0-9]*))?$").matchEntire(token)
+                ?: return null
+            val start = range.groupValues[1].toInt()
+            val end = range.groupValues[2].ifBlank { range.groupValues[1] }.toInt()
+            require(start <= end && end <= pageCount)
+            (start..end).forEach { selected.add(it - 1) }
+        }
+        selected.takeIf { it.isNotEmpty() }?.toList()
+    } catch (_: Exception) {
+        null
     }
 }
 
