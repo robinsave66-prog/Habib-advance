@@ -157,7 +157,7 @@ dependencies {
 
 // Download pinned official tessdata_fast models so the installed APK works offline.
 val ocrModelSpecs = listOf(
-  Triple("ben", "7e9054d1de309714009a85555f5276168d41af9c", 855841L),
+  Triple("ben", "c300ca8fbf0543f2fdd3256dbd5a203f404b513d", 855841L),
   Triple("eng", "bbef4675053b5b468cdb477053e28b1c698ba08e", 4113088L)
 )
 val downloadOcrLanguageModels = tasks.register("downloadOcrLanguageModels") {
