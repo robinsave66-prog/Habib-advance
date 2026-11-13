@@ -1299,10 +1299,26 @@ fun PdfEditorScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        "These actions create a new PDF copy and then continue editing that copy. Existing overlay edits are cleared after a page-structure change.",
+                        "Page changes create a new PDF copy. Existing text, image and signature overlays are kept and remapped when pages are inserted, deleted, duplicated or reordered.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    OutlinedButton(
+                        onClick = { showPageOperationsDialog = false; viewModel.duplicateCurrentPage() },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("Duplicate Current Page") }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            onClick = { showPageOperationsDialog = false; viewModel.moveCurrentPageBy(-1) },
+                            enabled = currentPage > 0,
+                            modifier = Modifier.weight(1f)
+                        ) { Text("Move Earlier") }
+                        OutlinedButton(
+                            onClick = { showPageOperationsDialog = false; viewModel.moveCurrentPageBy(1) },
+                            enabled = currentPage < ((status as? EditorUiStatus.Loaded)?.documentInfo?.pageCount ?: 1) - 1,
+                            modifier = Modifier.weight(1f)
+                        ) { Text("Move Later") }
+                    }
                     OutlinedButton(
                         onClick = { showPageOperationsDialog = false; viewModel.rotateCurrentPage() },
                         modifier = Modifier.fillMaxWidth()
