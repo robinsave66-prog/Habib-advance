@@ -108,6 +108,44 @@ class OfficeOpenXmlEditingEngineTest {
         assertTrue(rejected)
     }
 
+    @Test fun xlsxRejectsReferencesOutsideExcelWorksheetLimits() {
+        val file = zip("office-out-of-range.xlsx", mapOf(
+            "xl/workbook.xml" to """<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Data" sheetId="1" r:id="rId7"/></sheets></workbook>""",
+            "xl/_rels/workbook.xml.rels" to """<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId7" Target="worksheets/sheet1.xml"/></Relationships>""",
+            "xl/worksheets/sheet1.xml" to """<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData/></worksheet>"""
+        ))
+        val invalidReferences = listOf("XFE1", "A1048577", "AAAA1")
+        invalidReferences.forEach { reference ->
+            var rejected = false
+            try {
+                runBlocking {
+                    engine.setXlsxCellValue(
+                        Uri.fromFile(file), "Data", reference, "invalid",
+                        outputFileName = "out-of-range-$reference.xlsx"
+                    )
+                }
+            } catch (_: IllegalArgumentException) { rejected = true }
+            assertTrue("Expected $reference to be rejected", rejected)
+        }
+    }
+
+    @Test fun xlsxRejectsMissingWorksheetPackagePart() {
+        val file = zip("office-missing-sheet-part.xlsx", mapOf(
+            "xl/workbook.xml" to """<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Data" sheetId="1" r:id="rId7"/></sheets></workbook>""",
+            "xl/_rels/workbook.xml.rels" to """<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId7" Target="worksheets/missing.xml"/></Relationships>"""
+        ))
+        var rejected = false
+        try {
+            runBlocking {
+                engine.setXlsxCellValue(
+                    Uri.fromFile(file), "Data", "A1", "value",
+                    outputFileName = "missing-sheet-part-out.xlsx"
+                )
+            }
+        } catch (_: IllegalArgumentException) { rejected = true }
+        assertTrue(rejected)
+    }
+
     @Test fun pptxEditsSlideTextRun() {
         val file = zip("office-test.pptx", mapOf(
             "ppt/slides/slide1.xml" to """<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:rPr b="1"/><a:t>Quarterly Report</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>"""

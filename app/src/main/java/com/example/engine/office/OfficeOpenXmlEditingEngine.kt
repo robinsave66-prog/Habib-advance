@@ -78,8 +78,12 @@ class OfficeOpenXmlEditingEngine(private val context: Context) {
         require(sheetName.isNotBlank()) { "Select a worksheet." }
         require(edits.isNotEmpty()) { "Add at least one cell edit." }
         val normalized = edits.map { edit ->
-            require(edit.cellReference.matches(Regex("[A-Za-z]{1,3}[1-9][0-9]{0,6}"))) {
-                "Cell reference must look like A1 or BC24."
+            val match = Regex("^([A-Za-z]{1,3})([1-9][0-9]{0,6})$").matchEntire(edit.cellReference)
+                ?: throw IllegalArgumentException("Cell reference must look like A1 or BC24.")
+            val column = columnIndex(match.groupValues[1])
+            val row = match.groupValues[2].toInt()
+            require(column in 1..16_384 && row in 1..1_048_576) {
+                "Cell reference is outside the Excel worksheet limits (A1:XFD1048576)."
             }
             require(edit.formula == null || edit.formula.isNotBlank()) { "Formula cannot be empty." }
             edit.copy(cellReference = edit.cellReference.uppercase())
@@ -92,15 +96,18 @@ class OfficeOpenXmlEditingEngine(private val context: Context) {
         val output = outputFile(outputFileName, "xlsx")
         try {
             val worksheet = resolveSheet(source, sheetName)
+            var worksheetUpdated = false
             rewriteZip(source, output) { name, bytes ->
                 if (name != worksheet) bytes else {
                     val xml = parse(bytes)
                     val sheetData = xml.getElementsByTagNameNS(SHEET_NS, "sheetData").item(0) as? Element
                         ?: throw IllegalArgumentException("Worksheet sheetData is missing.")
                     normalized.forEach { edit -> applyCellEdit(xml, sheetData, edit) }
+                    worksheetUpdated = true
                     serialize(xml)
                 }
             }
+            require(worksheetUpdated) { "The selected worksheet part is missing from the XLSX package." }
             output
         } catch (error: Exception) {
             output.delete()
@@ -214,12 +221,7 @@ class OfficeOpenXmlEditingEngine(private val context: Context) {
                 ?: error("XLSX workbook.xml is missing.")).use { it.readBytes() })
             val rels = parse(zip.getInputStream(zip.getEntry("xl/_rels/workbook.xml.rels")
                 ?: error("XLSX workbook relationships are missing.")).use { it.readBytes() })
-            val targets = mutableMapOf<String, String>()
             val nodes = rels.getElementsByTagNameNS(PKG_REL_NS, "Relationship")
-            for (i in 0 until nodes.length) {
-                val node = nodes.item(i) as Element
-                targets[node.getAttribute("Id")] = node.getAttribute("Target")
-            }
             val sheets = workbook.getElementsByTagNameNS(SHEET_NS, "sheet")
             for (i in 0 until sheets.length) {
                 val sheet = sheets.item(i) as Element
