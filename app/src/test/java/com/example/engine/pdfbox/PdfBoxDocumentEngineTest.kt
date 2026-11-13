@@ -59,6 +59,18 @@ class PdfBoxDocumentEngineTest {
     }
 
     @Test
+    fun duplicatePageInsertsCopyImmediatelyAfterOriginal() = runBlocking {
+        val output = engine.duplicatePage(Uri.fromFile(source), 1, "duplicated-page-test.pdf")
+        PDDocument.load(output).use { document ->
+            assertEquals(4, document.numberOfPages)
+            assertEquals(300f, document.getPage(0).mediaBox.width, 0.01f)
+            assertEquals(400f, document.getPage(1).mediaBox.width, 0.01f)
+            assertEquals(400f, document.getPage(2).mediaBox.width, 0.01f)
+            assertEquals(500f, document.getPage(3).mediaBox.width, 0.01f)
+        }
+    }
+
+    @Test
     fun insertBlankPageUsesNeighborDimensions() = runBlocking {
         val output = engine.insertBlankPage(Uri.fromFile(source), 1, "inserted-page-test.pdf")
         PDDocument.load(output).use { document ->
