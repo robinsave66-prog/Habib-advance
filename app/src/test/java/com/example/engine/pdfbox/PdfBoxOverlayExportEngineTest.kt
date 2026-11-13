@@ -144,28 +144,37 @@ class PdfBoxOverlayExportEngineTest {
             }
             assertTrue("Bengali overlay should be embedded as a rendered image", imageNames.isNotEmpty())
 
-            // Verify the embedded Bengali overlay produces visible colored pixels when rendered,
-            // rather than merely checking that an image XObject exists in the PDF resources.
+            // Compare the exported page with the original render in the overlay's
+            // expected page region. This verifies that the Bengali glyphs are actually
+            // visible in the PDF, without assuming a particular color-management result.
             val rendered = PDFRenderer(result).renderImage(0, 2f, ImageType.RGB)
+            val originalRendered = PDDocument.load(source).use { original ->
+                PDFRenderer(original).renderImage(0, 2f, ImageType.RGB)
+            }
             try {
-                var visibleOverlayPixels = 0
-                for (y in 0 until rendered.height) {
-                    for (x in 0 until rendered.width) {
-                        val pixel = rendered.getPixel(x, y)
-                        val red = android.graphics.Color.red(pixel)
-                        val green = android.graphics.Color.green(pixel)
-                        val blue = android.graphics.Color.blue(pixel)
-                        if (blue > red + 12 && blue > green + 4) {
-                            visibleOverlayPixels++
-                        }
+                var changedPixels = 0
+                val left = (overlay.x * 2f).toInt().coerceAtLeast(0)
+                val top = (overlay.y * 2f).toInt().coerceAtLeast(0)
+                val right = ((overlay.x + overlay.width) * 2f).toInt().coerceAtMost(rendered.width)
+                val bottom = ((overlay.y + overlay.height) * 2f).toInt().coerceAtMost(rendered.height)
+                for (y in top until bottom) {
+                    for (x in left until right) {
+                        val actual = rendered.getPixel(x, y)
+                        val baseline = originalRendered.getPixel(x, y)
+                        val difference =
+                            kotlin.math.abs(android.graphics.Color.red(actual) - android.graphics.Color.red(baseline)) +
+                            kotlin.math.abs(android.graphics.Color.green(actual) - android.graphics.Color.green(baseline)) +
+                            kotlin.math.abs(android.graphics.Color.blue(actual) - android.graphics.Color.blue(baseline))
+                        if (difference > 24) changedPixels++
                     }
                 }
                 assertTrue(
-                    "Bengali overlay should render visible colored glyph pixels",
-                    visibleOverlayPixels > 20
+                    "Bengali overlay must produce visible pixels in its page region; changed=$changedPixels",
+                    changedPixels > 20
                 )
             } finally {
                 rendered.recycle()
+                originalRendered.recycle()
             }
         }
         assertTrue(source.exists())
