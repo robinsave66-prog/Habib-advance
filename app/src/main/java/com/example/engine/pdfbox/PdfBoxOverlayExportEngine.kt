@@ -52,7 +52,12 @@ class PdfBoxOverlayExportEngine(private val context: Context) {
                             true, true
                         ).use { stream ->
                             elements.sortedBy { it.zIndex }.forEach { element ->
-                                drawElement(document, stream, page.mediaBox.height, element)
+                                drawElement(
+                                    document,
+                                    stream,
+                                    page.mediaBox.height,
+                                    mapRotatedDisplayElementToPdf(element, page.mediaBox.width, page.mediaBox.height, page.rotation)
+                                )
                             }
                         }
                     }
@@ -66,6 +71,36 @@ class PdfBoxOverlayExportEngine(private val context: Context) {
         } finally {
             source.delete()
         }
+    }
+
+    /**
+     * Editor coordinates follow the page orientation shown by PdfRenderer. PDF content
+     * streams use the unrotated media-box coordinate system, so undo the page rotation
+     * before appending overlay operators. Page rotation is then applied by the PDF viewer
+     * to both the original content and these overlays.
+     */
+    private fun mapRotatedDisplayElementToPdf(
+        element: EditorElement,
+        pageWidth: Float,
+        pageHeight: Float,
+        pageRotation: Int
+    ): EditorElement {
+        val rotation = ((pageRotation % 360) + 360) % 360
+        val mapped = when (rotation) {
+            90 -> element
+                .copyWithPosition(element.y, pageHeight - element.x - element.width)
+                .copyWithSize(element.height, element.width)
+            180 -> element
+                .copyWithPosition(
+                    pageWidth - element.x - element.width,
+                    pageHeight - element.y - element.height
+                )
+            270 -> element
+                .copyWithPosition(pageWidth - element.y - element.height, element.x)
+                .copyWithSize(element.height, element.width)
+            else -> element
+        }
+        return if (rotation == 0) mapped else mapped.copyWithRotation(element.rotationDegrees - rotation)
     }
 
     private fun drawElement(
