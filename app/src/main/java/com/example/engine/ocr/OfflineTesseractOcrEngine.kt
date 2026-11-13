@@ -8,6 +8,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
+import java.security.MessageDigest
 
 enum class OcrLanguage(val label: String, val tessCode: String) {
     ENGLISH("English", "eng"),
@@ -25,10 +26,30 @@ data class OcrWordResult(
 object OfflineTesseractOcrEngine {
     private const val DATA_DIRECTORY = "tesseract"
     private const val TESSDATA_DIRECTORY = "tessdata"
-    private val requiredModels = listOf("eng.traineddata", "ben.traineddata")
+    private data class ModelSpec(val fileName: String, val size: Long, val sha1: String)
+
+    private val requiredModels = listOf(
+        ModelSpec("eng.traineddata", 4_113_088L, "31abd495e0f719db4f524c447e9d855124a0b0d6"),
+        ModelSpec("ben.traineddata", 855_841L, "c300ca8fbf0543f2fdd3256dbd5a203f404b513d")
+    )
 
     suspend fun openSession(context: Context, language: OcrLanguage): Session =
         withContext(Dispatchers.IO) { Session(context.applicationContext, language) }
+
+    private fun matchesPinnedModel(file: File, model: ModelSpec): Boolean {
+        if (!file.isFile || file.length() != model.size) return false
+        val digest = MessageDigest.getInstance("SHA-1")
+        file.inputStream().buffered().use { input ->
+            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                digest.update(buffer, 0, count)
+            }
+        }
+        val actual = digest.digest().joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
+        return actual == model.sha1
+    }
 
     class Session internal constructor(context: Context, language: OcrLanguage) : AutoCloseable {
         private val api = TessBaseAPI()
@@ -42,14 +63,31 @@ object OfflineTesseractOcrEngine {
                 throw IllegalStateException("Unable to create private OCR model directory.")
             }
             try {
-                requiredModels.forEach { modelName ->
-                    val target = File(tessdataDirectory, modelName)
-                    if (!target.exists() || target.length() == 0L) {
-                        context.assets.open("$TESSDATA_DIRECTORY/$modelName").use { input ->
-                            FileOutputStream(target).use { output -> input.copyTo(output) }
+                requiredModels.forEach { model ->
+                    val target = File(tessdataDirectory, model.fileName)
+                    if (!matchesPinnedModel(target, model)) {
+                        val temporary = File(tessdataDirectory, "${model.fileName}.tmp")
+                        temporary.delete()
+                        try {
+                            context.assets.open("$TESSDATA_DIRECTORY/${model.fileName}").use { input ->
+                                FileOutputStream(temporary).use { output -> input.copyTo(output) }
+                            }
+                            check(matchesPinnedModel(temporary, model)) {
+                                "Packaged OCR model failed its integrity check: ${model.fileName}"
+                            }
+                            if (target.exists() && !target.delete()) {
+                                throw IllegalStateException("Unable to replace the damaged OCR model: ${model.fileName}")
+                            }
+                            check(temporary.renameTo(target)) {
+                                "Unable to install the verified OCR model: ${model.fileName}"
+                            }
+                        } finally {
+                            temporary.delete()
                         }
                     }
-                    check(target.exists() && target.length() > 0L) { "OCR language model is missing: $modelName" }
+                    check(matchesPinnedModel(target, model)) {
+                        "OCR language model is missing or damaged: ${model.fileName}"
+                    }
                 }
             } catch (error: Exception) {
                 api.recycle()
