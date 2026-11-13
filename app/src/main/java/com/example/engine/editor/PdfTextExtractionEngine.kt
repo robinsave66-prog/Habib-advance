@@ -7,16 +7,23 @@ import android.net.Uri
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
+import com.tom_roush.pdfbox.pdmodel.PDDocument
+import com.tom_roush.pdfbox.text.PDFTextStripper
+import com.tom_roush.pdfbox.text.TextPosition
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
-import java.io.InputStream
+import java.io.File
+import java.io.FileOutputStream
 import java.util.UUID
+import kotlin.math.abs
+import kotlin.math.max
 
 data class DetectedPdfWord(
     val id: String = UUID.randomUUID().toString(),
     val text: String,
-    val bounds: RectF, // Coordinates in PDF page points (72 DPI)
+    val bounds: RectF, // PDF points, top-left origin
     val pageIndex: Int,
     val fontSizePt: Float = 14f,
     val isBold: Boolean = false,
@@ -32,10 +39,9 @@ data class DetectedPdfLine(
 )
 
 object PdfTextExtractionEngine {
-
     /**
-     * Extracts all individual words with precise PDF-point (72 DPI) bounding boxes.
-     * Uses on-device ML Kit Text Recognition with automatic fallback to PDF content-stream parsing.
+     * Extract actual native PDF glyph positions first. For scanned pages, fall back
+     * to on-device ML Kit Latin OCR. Never return fabricated sample words.
      */
     suspend fun extractWordsFromPage(
         context: Context,
@@ -44,191 +50,163 @@ object PdfTextExtractionEngine {
         pageWidthPt: Int,
         pageHeightPt: Int,
         sourceUri: Uri?
-    ): List<DetectedPdfWord> = withContext(Dispatchers.Default) {
-        val detectedWords = mutableListOf<DetectedPdfWord>()
+    ): List<DetectedPdfWord> = withContext(Dispatchers.IO) {
+        require(pageIndex >= 0) { "Page index cannot be negative." }
+        require(pageWidthPt > 0 && pageHeightPt > 0) { "Page dimensions must be positive." }
 
-        // 1. Try ML Kit on high-res page bitmap
-        if (pageBitmap != null && !pageBitmap.isRecycled) {
-            try {
-                val inputImage = InputImage.fromBitmap(pageBitmap, 0)
-                val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
-                val visionText = recognizer.process(inputImage).await()
+        val nativeWords = if (sourceUri != null) extractNativePdfWords(context, sourceUri, pageIndex) else emptyList()
+        if (nativeWords.isNotEmpty()) return@withContext nativeWords
+        if (pageBitmap == null || pageBitmap.isRecycled) return@withContext emptyList()
 
-                val bmpW = pageBitmap.width.toFloat()
-                val bmpH = pageBitmap.height.toFloat()
-
-                val scaleX = pageWidthPt.toFloat() / bmpW
-                val scaleY = pageHeightPt.toFloat() / bmpH
-
+        val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+        try {
+            val visionText = recognizer.process(InputImage.fromBitmap(pageBitmap, 0)).await()
+            val scaleX = pageWidthPt.toFloat() / pageBitmap.width.toFloat()
+            val scaleY = pageHeightPt.toFloat() / pageBitmap.height.toFloat()
+            buildList {
                 for (block in visionText.textBlocks) {
                     for (line in block.lines) {
                         for (element in line.elements) {
-                            val box = element.boundingBox
-                            if (box != null) {
-                                val ptLeft = box.left * scaleX
-                                val ptTop = box.top * scaleY
-                                val ptRight = box.right * scaleX
-                                val ptBottom = box.bottom * scaleY
-
-                                val heightPt = ptBottom - ptTop
-                                val approxFontPt = (heightPt * 0.85f).coerceIn(8f, 72f)
-
-                                detectedWords.add(
-                                    DetectedPdfWord(
-                                        text = element.text,
-                                        bounds = RectF(ptLeft, ptTop, ptRight, ptBottom),
-                                        pageIndex = pageIndex,
-                                        fontSizePt = approxFontPt,
-                                        isBold = approxFontPt > 16f,
-                                        textColor = 0xFF000000
-                                    )
-                                )
-                            }
+                            val box = element.boundingBox ?: continue
+                            val left = box.left * scaleX
+                            val top = box.top * scaleY
+                            val right = box.right * scaleX
+                            val bottom = box.bottom * scaleY
+                            add(DetectedPdfWord(
+                                text = element.text,
+                                bounds = RectF(left, top, right, bottom),
+                                pageIndex = pageIndex,
+                                fontSizePt = ((bottom - top) * 0.85f).coerceIn(1f, 200f)
+                            ))
                         }
                     }
                 }
-            } catch (_: Exception) {
-                // In headless JVM / Robolectric or when Play Services is initializing, fallback
             }
+        } catch (_: Exception) {
+            emptyList()
+        } finally {
+            recognizer.close()
         }
-
-        // 2. If ML Kit produced no words or failed, fallback to native PDF stream parsing
-        if (detectedWords.isEmpty() && sourceUri != null) {
-            val streamWords = parsePdfContentStreamWords(context, sourceUri, pageIndex, pageWidthPt, pageHeightPt)
-            detectedWords.addAll(streamWords)
-        }
-
-        // 3. Fallback dummy sample words if both fail
-        if (detectedWords.isEmpty()) {
-            val sampleLines = listOf(
-                "HABIB ADVANCE EDITOR",
-                "Touch and hold any word to select, copy, cut, or edit text.",
-                "Professional PDF Document Suite."
-            )
-            var curY = 60f
-            for (line in sampleLines) {
-                var curX = 50f
-                val words = line.split(" ")
-                for (w in words) {
-                    val wWidth = (w.length * 8.5f).coerceAtLeast(20f)
-                    detectedWords.add(
-                        DetectedPdfWord(
-                            text = w,
-                            bounds = RectF(curX, curY, curX + wWidth, curY + 22f),
-                            pageIndex = pageIndex,
-                            fontSizePt = 16f,
-                            isBold = line.startsWith("HABIB"),
-                            textColor = 0xFF0F3B66
-                        )
-                    )
-                    curX += wWidth + 8f
-                }
-                curY += 32f
-            }
-        }
-
-        detectedWords
     }
 
-    /**
-     * Hit-test helper: finds the word directly underneath the finger touch point.
-     */
-    fun findWordAt(touchPtX: Float, touchPtY: Float, words: List<DetectedPdfWord>): DetectedPdfWord? {
-        // Direct intersection
-        val directHit = words.find { it.bounds.contains(touchPtX, touchPtY) }
-        if (directHit != null) return directHit
+    private fun extractNativePdfWords(context: Context, uri: Uri, pageIndex: Int): List<DetectedPdfWord> {
+        val source = File(context.cacheDir, "pdf-text-${UUID.randomUUID()}.pdf")
+        return try {
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                FileOutputStream(source).use { output -> input.copyTo(output) }
+            } ?: return emptyList()
+            if (source.length() == 0L) return emptyList()
+            PDFBoxResourceLoader.init(context)
+            PDDocument.load(source).use { document ->
+                if (pageIndex !in 0 until document.numberOfPages) return emptyList()
+                val stripper = PositionedTextStripper()
+                stripper.sortByPosition = true
+                stripper.startPage = pageIndex + 1
+                stripper.endPage = pageIndex + 1
+                stripper.getText(document)
+                stripper.toWords(pageIndex)
+            }
+        } catch (_: Exception) {
+            emptyList()
+        } finally {
+            source.delete()
+        }
+    }
 
-        // Near-hit with 12pt tolerance
+    private class PositionedTextStripper : PDFTextStripper() {
+        private val positions = mutableListOf<TextPosition>()
+
+        override fun processTextPosition(text: TextPosition) {
+            super.processTextPosition(text)
+            positions += text
+        }
+
+        fun toWords(pageIndex: Int): List<DetectedPdfWord> {
+            if (positions.isEmpty()) return emptyList()
+            val words = mutableListOf<DetectedPdfWord>()
+            val text = StringBuilder()
+            var left = Float.MAX_VALUE
+            var top = Float.MAX_VALUE
+            var right = Float.MIN_VALUE
+            var bottom = Float.MIN_VALUE
+            var fontSize = 14f
+            var bold = false
+            var italic = false
+            var lastBaseline = Float.NaN
+
+            fun flush() {
+                val value = text.toString().trim()
+                if (value.isNotEmpty() && left.isFinite() && top.isFinite() && right > left && bottom > top) {
+                    words += DetectedPdfWord(
+                        text = value,
+                        bounds = RectF(left, top, right, bottom),
+                        pageIndex = pageIndex,
+                        fontSizePt = fontSize.coerceIn(1f, 200f),
+                        isBold = bold,
+                        isItalic = italic
+                    )
+                }
+                text.clear()
+                left = Float.MAX_VALUE
+                top = Float.MAX_VALUE
+                right = Float.MIN_VALUE
+                bottom = Float.MIN_VALUE
+                fontSize = 14f
+                bold = false
+                italic = false
+            }
+
+            for (position in positions) {
+                val glyph = position.unicode.orEmpty()
+                if (glyph.isBlank()) {
+                    flush()
+                    lastBaseline = Float.NaN
+                    continue
+                }
+                val baseline = position.yDirAdj
+                val glyphHeight = max(position.heightDir, 1f)
+                if (lastBaseline.isFinite() && abs(baseline - lastBaseline) > max(2f, glyphHeight * 0.45f)) flush()
+                val glyphLeft = position.xDirAdj
+                val glyphRight = glyphLeft + max(position.widthDirAdj, 0.1f)
+                left = minOf(left, glyphLeft)
+                top = minOf(top, baseline - glyphHeight)
+                right = max(right, glyphRight)
+                bottom = max(bottom, baseline)
+                text.append(glyph)
+                fontSize = max(fontSize, position.fontSizeInPt)
+                val fontName = position.font?.name.orEmpty().lowercase()
+                bold = bold || fontName.contains("bold")
+                italic = italic || fontName.contains("italic") || fontName.contains("oblique")
+                lastBaseline = baseline
+            }
+            flush()
+            return words
+        }
+    }
+
+    fun findWordAt(touchPtX: Float, touchPtY: Float, words: List<DetectedPdfWord>): DetectedPdfWord? {
+        words.firstOrNull { it.bounds.contains(touchPtX, touchPtY) }?.let { return it }
         val tolerance = 14f
         val nearHit = words.minByOrNull { word ->
-            val cx = word.bounds.centerX()
-            val cy = word.bounds.centerY()
-            val dx = cx - touchPtX
-            val dy = cy - touchPtY
+            val dx = word.bounds.centerX() - touchPtX
+            val dy = word.bounds.centerY() - touchPtY
             dx * dx + dy * dy
+        } ?: return null
+        return nearHit.takeIf {
+            RectF(it.bounds.left - tolerance, it.bounds.top - tolerance,
+                it.bounds.right + tolerance, it.bounds.bottom + tolerance).contains(touchPtX, touchPtY)
         }
-
-        if (nearHit != null) {
-            val expanded = RectF(
-                nearHit.bounds.left - tolerance,
-                nearHit.bounds.top - tolerance,
-                nearHit.bounds.right + tolerance,
-                nearHit.bounds.bottom + tolerance
-            )
-            if (expanded.contains(touchPtX, touchPtY)) {
-                return nearHit
-            }
-        }
-
-        return null
     }
 
-    /**
-     * Selects all words spanning between startWord and endWord in reading order.
-     */
     fun getWordsInRange(
         startWord: DetectedPdfWord,
         endWord: DetectedPdfWord,
         allWords: List<DetectedPdfWord>
     ): List<DetectedPdfWord> {
-        val sorted = allWords.sortedWith(
-            compareBy<DetectedPdfWord> { it.bounds.top }
-                .thenBy { it.bounds.left }
-        )
-
-        val idx1 = sorted.indexOfFirst { it.id == startWord.id }
-        val idx2 = sorted.indexOfFirst { it.id == endWord.id }
-
-        if (idx1 == -1 || idx2 == -1) return listOf(startWord)
-
-        val first = minOf(idx1, idx2)
-        val last = maxOf(idx1, idx2)
-
-        return sorted.subList(first, last + 1)
-    }
-
-    private fun parsePdfContentStreamWords(
-        context: Context,
-        uri: Uri,
-        pageIndex: Int,
-        pageW: Int,
-        pageH: Int
-    ): List<DetectedPdfWord> {
-        val words = mutableListOf<DetectedPdfWord>()
-        try {
-            context.contentResolver.openInputStream(uri)?.use { input ->
-                val bytes = input.readBytes()
-                val textContent = String(bytes, Charsets.ISO_8859_1)
-
-                val textRegex = "\\(([^\\)]+)\\)\\s*Tj".toRegex()
-                var yPos = 80f
-                var xPos = 40f
-
-                for (m in textRegex.findAll(textContent).take(80)) {
-                    val rawStr = m.groupValues[1].trim()
-                    if (rawStr.isNotBlank()) {
-                        val wordTokens = rawStr.split("\\s+".toRegex())
-                        for (w in wordTokens) {
-                            val wWidth = (w.length * 7.5f).coerceAtLeast(18f)
-                            if (xPos + wWidth > pageW - 40f) {
-                                xPos = 40f
-                                yPos += 24f
-                            }
-                            words.add(
-                                DetectedPdfWord(
-                                    text = w,
-                                    bounds = RectF(xPos, yPos, xPos + wWidth, yPos + 18f),
-                                    pageIndex = pageIndex,
-                                    fontSizePt = 14f,
-                                    textColor = 0xFF000000
-                                )
-                            )
-                            xPos += wWidth + 6f
-                        }
-                    }
-                }
-            }
-        } catch (_: Exception) {}
-        return words
+        val sorted = allWords.sortedWith(compareBy<DetectedPdfWord> { it.bounds.top }.thenBy { it.bounds.left })
+        val firstIndex = sorted.indexOfFirst { it.id == startWord.id }
+        val lastIndex = sorted.indexOfFirst { it.id == endWord.id }
+        if (firstIndex == -1 || lastIndex == -1) return listOf(startWord)
+        return sorted.subList(minOf(firstIndex, lastIndex), maxOf(firstIndex, lastIndex) + 1)
     }
 }
