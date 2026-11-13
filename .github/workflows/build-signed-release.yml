@@ -10,6 +10,12 @@ on:
       - 'settings.gradle.kts'
       - '.github/workflows/build-signed-release.yml'
   workflow_dispatch:
+    inputs:
+      publish_apk:
+        description: "Publish the final root APK (use only after full testing)"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -74,6 +80,7 @@ jobs:
           "$APKSIGNER" verify --verbose --print-certs "$APK"
 
       - name: Publish the single root APK
+        if: ${{ github.ref == 'refs/heads/main' || inputs.publish_apk == true }}
         run: |
           find . -maxdepth 1 -type f -name '*.apk' ! -name 'Habib_Advance_Editor_Complete.apk' -delete
           cp app/build/outputs/apk/release/app-release.apk Habib_Advance_Editor_Complete.apk
@@ -84,6 +91,7 @@ jobs:
           git push
 
       - name: Upload APK artifact
+        if: ${{ github.ref == 'refs/heads/main' || inputs.publish_apk == true }}
         uses: actions/upload-artifact@v4
         with:
           name: Habib_Advance_Editor_Complete

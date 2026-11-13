@@ -18,6 +18,13 @@ import javax.xml.transform.TransformerFactory
 import javax.xml.transform.dom.DOMSource
 import javax.xml.transform.stream.StreamResult
 
+/** A single XLSX cell value or formula update. */
+data class XlsxCellEdit(
+    val cellReference: String,
+    val value: String = "",
+    val formula: String? = null
+)
+
 /** Native Open XML package editing for DOCX, XLSX and PPTX. */
 class OfficeOpenXmlEditingEngine(private val context: Context) {
     suspend fun replaceDocxText(sourceUri: Uri, oldText: String, newText: String,
@@ -54,12 +61,33 @@ class OfficeOpenXmlEditingEngine(private val context: Context) {
 
     suspend fun setXlsxCellValue(sourceUri: Uri, sheetName: String, cellReference: String,
         value: String, formula: String? = null,
+        outputFileName: String = "Edited_Workbook.xlsx"): File =
+        setXlsxCellValues(
+            sourceUri, sheetName,
+            listOf(XlsxCellEdit(cellReference, value, formula)),
+            outputFileName
+        )
+
+    /**
+     * Applies multiple edits to one worksheet in a single package rewrite.
+     * Existing cell style attributes are retained. Formula results are intentionally
+     * left for Excel/LibreOffice to calculate when the workbook is opened.
+     */
+    suspend fun setXlsxCellValues(sourceUri: Uri, sheetName: String, edits: List<XlsxCellEdit>,
         outputFileName: String = "Edited_Workbook.xlsx"): File = withContext(Dispatchers.IO) {
         require(sheetName.isNotBlank()) { "Select a worksheet." }
-        require(cellReference.matches(Regex("[A-Za-z]{1,3}[1-9][0-9]{0,6}"))) {
-            "Cell reference must look like A1 or BC24."
+        require(edits.isNotEmpty()) { "Add at least one cell edit." }
+        val normalized = edits.map { edit ->
+            require(edit.cellReference.matches(Regex("[A-Za-z]{1,3}[1-9][0-9]{0,6}"))) {
+                "Cell reference must look like A1 or BC24."
+            }
+            require(edit.formula == null || edit.formula.isNotBlank()) { "Formula cannot be empty." }
+            edit.copy(cellReference = edit.cellReference.uppercase())
         }
-        require(formula == null || formula.isNotBlank()) { "Formula cannot be empty." }
+        require(normalized.map { it.cellReference }.distinct().size == normalized.size) {
+            "Each cell can be edited only once per batch."
+        }
+
         val source = copySource(sourceUri)
         val output = outputFile(outputFileName, "xlsx")
         try {
@@ -69,43 +97,7 @@ class OfficeOpenXmlEditingEngine(private val context: Context) {
                     val xml = parse(bytes)
                     val sheetData = xml.getElementsByTagNameNS(SHEET_NS, "sheetData").item(0) as? Element
                         ?: throw IllegalArgumentException("Worksheet sheetData is missing.")
-                    val rowNumber = cellReference.filter { it.isDigit() }.toInt()
-                    val row = findOrCreateRow(xml, sheetData, rowNumber)
-                    val cells = (0 until row.childNodes.length).mapNotNull {
-                        row.childNodes.item(it) as? Element
-                    }.filter { it.localName == "c" }
-                    val cell = cells.firstOrNull { it.getAttribute("r").equals(cellReference, true) }
-                        ?: xml.createElementNS(SHEET_NS, "c").also { newCell ->
-                            val targetColumn = columnIndex(cellReference)
-                            val nextCell = cells.firstOrNull { columnIndex(it.getAttribute("r")) > targetColumn }
-                            if (nextCell != null) row.insertBefore(newCell, nextCell) else row.appendChild(newCell)
-                        }
-                    cell.setAttribute("r", cellReference.uppercase())
-                    while (cell.hasChildNodes()) cell.removeChild(cell.firstChild)
-                    if (formula != null) {
-                        cell.removeAttribute("t")
-                        xml.createElementNS(SHEET_NS, "f").also {
-                            it.textContent = formula.removePrefix("=")
-                            cell.appendChild(it)
-                        }
-                        xml.createElementNS(SHEET_NS, "v").also { cell.appendChild(it) }
-                    } else if (value.isNotBlank() && value.toDoubleOrNull() != null) {
-                        cell.removeAttribute("t")
-                        xml.createElementNS(SHEET_NS, "v").also {
-                            it.textContent = value
-                            cell.appendChild(it)
-                        }
-                    } else {
-                        cell.setAttribute("t", "inlineStr")
-                        val inline = xml.createElementNS(SHEET_NS, "is")
-                        val text = xml.createElementNS(SHEET_NS, "t")
-                        if (value.startsWith(" ") || value.endsWith(" ")) {
-                            text.setAttributeNS(XMLConstants.XML_NS_URI, "xml:space", "preserve")
-                        }
-                        text.textContent = value
-                        inline.appendChild(text)
-                        cell.appendChild(inline)
-                    }
+                    normalized.forEach { edit -> applyCellEdit(xml, sheetData, edit) }
                     serialize(xml)
                 }
             }
@@ -116,6 +108,49 @@ class OfficeOpenXmlEditingEngine(private val context: Context) {
         } finally { source.delete() }
     }
 
+    private fun applyCellEdit(xml: Document, sheetData: Element, edit: XlsxCellEdit) {
+        val reference = edit.cellReference
+        val rowNumber = reference.filter { it.isDigit() }.toInt()
+        val row = findOrCreateRow(xml, sheetData, rowNumber)
+        val cells = (0 until row.childNodes.length).mapNotNull {
+            row.childNodes.item(it) as? Element
+        }.filter { it.localName == "c" }
+        val cell = cells.firstOrNull { it.getAttribute("r").equals(reference, true) }
+            ?: xml.createElementNS(SHEET_NS, "c").also { newCell ->
+                val targetColumn = columnIndex(reference)
+                val nextCell = cells.firstOrNull { columnIndex(it.getAttribute("r")) > targetColumn }
+                if (nextCell != null) row.insertBefore(newCell, nextCell) else row.appendChild(newCell)
+            }
+
+        // Do not remove cell attributes such as style index, metadata or protection.
+        cell.setAttribute("r", reference)
+        while (cell.hasChildNodes()) cell.removeChild(cell.firstChild)
+        if (edit.formula != null) {
+            cell.removeAttribute("t")
+            xml.createElementNS(SHEET_NS, "f").also {
+                it.textContent = edit.formula.removePrefix("=")
+                cell.appendChild(it)
+            }
+            // Empty cached result: spreadsheet applications recalculate on open.
+            xml.createElementNS(SHEET_NS, "v").also { cell.appendChild(it) }
+        } else if (edit.value.isNotBlank() && edit.value.toDoubleOrNull() != null) {
+            cell.removeAttribute("t")
+            xml.createElementNS(SHEET_NS, "v").also {
+                it.textContent = edit.value
+                cell.appendChild(it)
+            }
+        } else {
+            cell.setAttribute("t", "inlineStr")
+            val inline = xml.createElementNS(SHEET_NS, "is")
+            val text = xml.createElementNS(SHEET_NS, "t")
+            if (edit.value.startsWith(" ") || edit.value.endsWith(" ")) {
+                text.setAttributeNS(XMLConstants.XML_NS_URI, "xml:space", "preserve")
+            }
+            text.textContent = edit.value
+            inline.appendChild(text)
+            cell.appendChild(inline)
+        }
+    }
     private suspend fun editTextPackage(uri: Uri, name: String, extension: String,
         transform: (String, ByteArray) -> ByteArray): File {
         val source = copySource(uri)
@@ -189,13 +224,19 @@ class OfficeOpenXmlEditingEngine(private val context: Context) {
             for (i in 0 until sheets.length) {
                 val sheet = sheets.item(i) as Element
                 if (sheet.getAttribute("name") == name) {
-                    val target = targets[sheet.getAttributeNS(OFFICE_REL_NS, "id")]
+                    val relationshipId = sheet.getAttributeNS(OFFICE_REL_NS, "id")
+                    val relationship = (0 until nodes.length).map { nodes.item(it) as Element }
+                        .firstOrNull { it.getAttribute("Id") == relationshipId }
                         ?: error("Worksheet relationship is missing.")
-                    return when {
-                        target.startsWith("/") -> target.removePrefix("/")
-                        target.startsWith("xl/") -> target
-                        else -> "xl/" + target
+                    require(relationship.getAttribute("TargetMode") != "External") {
+                        "External worksheet relationships are not supported."
                     }
+                    val target = relationship.getAttribute("Target")
+                    val resolved = java.net.URI("xl/").resolve(target).normalize().path.removePrefix("/")
+                    require(resolved.startsWith("xl/") && !resolved.split("/").contains("..")) {
+                        "Worksheet relationship points outside the XLSX package."
+                    }
+                    return resolved
                 }
             }
             throw IllegalArgumentException("Worksheet '" + name + "' was not found.")

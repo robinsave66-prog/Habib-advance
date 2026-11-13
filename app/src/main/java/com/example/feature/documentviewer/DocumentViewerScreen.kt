@@ -60,6 +60,7 @@ import androidx.compose.material.icons.filled.ZoomOut
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
 import com.example.engine.office.OfficeOpenXmlEditingEngine
+import com.example.engine.office.XlsxCellEdit
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -202,6 +203,7 @@ fun DocumentViewerScreen(
     var officeCellReference by remember { mutableStateOf("A1") }
     var officeCellValue by remember { mutableStateOf("") }
     var officeFormula by remember { mutableStateOf("") }
+    var officeBulkEdits by remember { mutableStateOf("") }
     var pendingOfficeOutput by remember { mutableStateOf<File?>(null) }
     val officeEditingEngine = remember(context) { OfficeOpenXmlEditingEngine(context) }
 
@@ -314,6 +316,7 @@ fun DocumentViewerScreen(
                                     officeCellReference = "A1"
                                     officeCellValue = ""
                                     officeFormula = ""
+                                    officeBulkEdits = ""
                                     showOfficeEditDialog = true
                                 },
                                 enabled = !isOfficeEditing,
@@ -562,6 +565,13 @@ fun DocumentViewerScreen(
                             label = { Text("Formula (optional, e.g. SUM(A1:A5))") },
                             singleLine = true
                         )
+                        OutlinedTextField(
+                            value = officeBulkEdits,
+                            onValueChange = { officeBulkEdits = it },
+                            label = { Text("Bulk cells (one per line: A1=Name, B2=42, C3==SUM(A1:A2))") },
+                            minLines = 3,
+                            supportingText = { Text("Use one cell per line. Start the value with = to enter a formula.") }
+                        )
                     } else {
                         OutlinedTextField(
                             value = officeFindText,
@@ -577,7 +587,7 @@ fun DocumentViewerScreen(
                         )
                     }
                     Text(
-                        text = "This edits native Office XML parts and preserves unrelated package parts. It does not provide full layout editing or formula recalculation yet.",
+                        text = "This applies native Open XML text/cell edits and preserves unrelated package parts. Excel formulas are stored but recalculated by a compatible spreadsheet app when opened; full layout editing is not yet available.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -586,8 +596,10 @@ fun DocumentViewerScreen(
             confirmButton = {
                 TextButton(
                     enabled = !isOfficeEditing && if (formatType == DocumentFormatType.XLSX) {
-                        officeSheetName.isNotBlank() && officeCellReference.isNotBlank() &&
-                            (officeFormula.isNotBlank() || officeCellValue.isNotBlank())
+                        officeSheetName.isNotBlank() && (
+                            officeBulkEdits.isNotBlank() ||
+                            (officeCellReference.isNotBlank() && (officeFormula.isNotBlank() || officeCellValue.isNotBlank()))
+                        )
                     } else officeFindText.isNotBlank(),
                     onClick = {
                         isOfficeEditing = true
@@ -602,11 +614,29 @@ fun DocumentViewerScreen(
                                         documentUri, officeFindText, officeReplaceText,
                                         resolvedName.substringBeforeLast(".") + "_edited.pptx"
                                     )
-                                    DocumentFormatType.XLSX -> officeEditingEngine.setXlsxCellValue(
-                                        documentUri, officeSheetName, officeCellReference,
-                                        officeCellValue, officeFormula.ifBlank { null },
-                                        resolvedName.substringBeforeLast(".") + "_edited.xlsx"
-                                    )
+                                    DocumentFormatType.XLSX -> {
+                                        val edits = if (officeBulkEdits.isNotBlank()) {
+                                            officeBulkEdits.lineSequence().map { it.trim() }
+                                                .filter { it.isNotEmpty() }
+                                                .map { line ->
+                                                    val separator = line.indexOf('=')
+                                                    require(separator > 0) { "Each bulk edit must use CELL=value, for example A1=Name." }
+                                                    val cell = line.substring(0, separator).trim()
+                                                    val rawValue = line.substring(separator + 1)
+                                                    if (rawValue.startsWith("=")) {
+                                                        XlsxCellEdit(cell, formula = rawValue)
+                                                    } else {
+                                                        XlsxCellEdit(cell, value = rawValue)
+                                                    }
+                                                }.toList()
+                                        } else {
+                                            listOf(XlsxCellEdit(officeCellReference, officeCellValue, officeFormula.ifBlank { null }))
+                                        }
+                                        officeEditingEngine.setXlsxCellValues(
+                                            documentUri, officeSheetName, edits,
+                                            resolvedName.substringBeforeLast(".") + "_edited.xlsx"
+                                        )
+                                    }
                                     else -> throw IllegalArgumentException("This Office format is not editable.")
                                 }
                                 showOfficeEditDialog = false

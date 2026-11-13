@@ -57,6 +57,57 @@ class OfficeOpenXmlEditingEngineTest {
         }
     }
 
+    @Test fun xlsxBatchEditsMultipleCellsAndFormulaInOnePass() {
+        val file = zip("office-batch.xlsx", mapOf(
+            "xl/workbook.xml" to """<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Data" sheetId="1" r:id="rId7"/></sheets></workbook>""",
+            "xl/_rels/workbook.xml.rels" to """<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId7" Target="./worksheets/sheet3.xml"/></Relationships>""",
+            "xl/worksheets/sheet3.xml" to """<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="A1" s="4"><v>12</v></c></row></sheetData></worksheet>""",
+            "xl/styles.xml" to "<styleSheet/>"
+        ))
+        val out = runBlocking {
+            engine.setXlsxCellValues(
+                Uri.fromFile(file), "Data",
+                listOf(
+                    XlsxCellEdit("A1", "Updated"),
+                    XlsxCellEdit("B1", "42"),
+                    XlsxCellEdit("C1", formula = "=SUM(B1:B4)")
+                ),
+                "edited-batch.xlsx"
+            )
+        }
+        ZipFile(out).use { zip ->
+            val xml = DocumentBuilderFactory.newInstance().apply { isNamespaceAware = true }
+                .newDocumentBuilder().parse(zip.getInputStream(zip.getEntry("xl/worksheets/sheet3.xml")))
+            val cells = xml.getElementsByTagNameNS("http://schemas.openxmlformats.org/spreadsheetml/2006/main", "c")
+            assertEquals(3, cells.length)
+            val first = cells.item(0) as org.w3c.dom.Element
+            assertEquals("4", first.getAttribute("s"))
+            assertEquals("Updated", xml.getElementsByTagNameNS("http://schemas.openxmlformats.org/spreadsheetml/2006/main", "t").item(0).textContent)
+            val formulaCell = cells.item(2) as org.w3c.dom.Element
+            assertEquals("C1", formulaCell.getAttribute("r"))
+            assertEquals("SUM(B1:B4)", formulaCell.getElementsByTagNameNS("http://schemas.openxmlformats.org/spreadsheetml/2006/main", "f").item(0).textContent)
+        }
+    }
+
+    @Test fun xlsxBatchRejectsDuplicateCellReferences() {
+        val file = zip("office-duplicate-cells.xlsx", mapOf(
+            "xl/workbook.xml" to """<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Data" sheetId="1" r:id="rId7"/></sheets></workbook>""",
+            "xl/_rels/workbook.xml.rels" to """<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId7" Target="worksheets/sheet1.xml"/></Relationships>""",
+            "xl/worksheets/sheet1.xml" to """<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData/></worksheet>"""
+        ))
+        var rejected = false
+        try {
+            runBlocking {
+                engine.setXlsxCellValues(
+                    Uri.fromFile(file), "Data",
+                    listOf(XlsxCellEdit("a1", "one"), XlsxCellEdit("A1", "two")),
+                    "duplicate-cells.xlsx"
+                )
+            }
+        } catch (_: IllegalArgumentException) { rejected = true }
+        assertTrue(rejected)
+    }
+
     @Test fun pptxEditsSlideTextRun() {
         val file = zip("office-test.pptx", mapOf(
             "ppt/slides/slide1.xml" to """<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:rPr b="1"/><a:t>Quarterly Report</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>"""
