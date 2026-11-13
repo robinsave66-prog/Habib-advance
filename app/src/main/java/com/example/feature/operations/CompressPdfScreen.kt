@@ -232,7 +232,7 @@ fun CompressPdfScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
-                            text = "Important: This tool performs a lossless PDF rewrite and preserves searchable text and vector content. It does not rasterize pages, but a smaller file size is not guaranteed for every PDF.",
+                            text = "Important: This tool performs a lossless PDF rewrite and preserves searchable text and vector content. It does not rasterize pages, but a smaller file size is not guaranteed. Low, Medium and High currently use the same safe rewrite; different compression strengths are not implemented yet.",
                             modifier = Modifier.padding(12.dp),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onErrorContainer
