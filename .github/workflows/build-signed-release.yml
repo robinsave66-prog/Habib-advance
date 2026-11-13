@@ -75,6 +75,7 @@ jobs:
 
       - name: Publish the single root APK
         run: |
+          find . -maxdepth 1 -type f -name '*.apk' ! -name 'Habib_Advance_Editor_Complete.apk' -delete
           cp app/build/outputs/apk/release/app-release.apk Habib_Advance_Editor_Complete.apk
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
