@@ -205,6 +205,7 @@ object AdvancedPdfOperationsEngine {
             "${outputFileName.trim().replace("\\s+".toRegex(), "_")}.pdf"
         }
         val targetFile = File(docsDir, safeName)
+        require(!targetFile.exists()) { "A file with this name already exists. Choose another name." }
 
         val scaleFactor = when (compressionLevel) {
             "Low" -> 0.90f
@@ -220,59 +221,78 @@ object AdvancedPdfOperationsEngine {
         }
 
         val compressedDoc = PdfDocument()
-        val tempSource = File(context.cacheDir, "temp_compress_${System.currentTimeMillis()}.pdf")
-
+        val tempSource = File(context.cacheDir, "temp_compress_${java.util.UUID.randomUUID()}.pdf")
         try {
             context.contentResolver.openInputStream(sourceUri)?.use { input ->
                 FileOutputStream(tempSource).use { output -> input.copyTo(output) }
-            }
+            } ?: throw IllegalArgumentException("Cannot open the selected PDF.")
+            require(tempSource.length() > 0L) { "The selected PDF is empty or unreadable." }
 
-            if (tempSource.exists() && tempSource.length() > 0) {
-                val pfd = ParcelFileDescriptor.open(tempSource, ParcelFileDescriptor.MODE_READ_ONLY)
+            val pfd = ParcelFileDescriptor.open(tempSource, ParcelFileDescriptor.MODE_READ_ONLY)
+            try {
                 val renderer = PdfRenderer(pfd)
+                try {
+                    require(renderer.pageCount > 0) { "The selected PDF has no pages." }
+                    for (i in 0 until renderer.pageCount) {
+                        val page = renderer.openPage(i)
+                        try {
+                            val origW = page.width
+                            val origH = page.height
+                            val scaledW = (origW * scaleFactor).toInt().coerceAtLeast(1)
+                            val scaledH = (origH * scaleFactor).toInt().coerceAtLeast(1)
+                            val bitmap = Bitmap.createBitmap(scaledW, scaledH, Bitmap.Config.ARGB_8888)
+                            try {
+                                bitmap.eraseColor(Color.WHITE)
+                                val matrix = android.graphics.Matrix().apply { postScale(scaleFactor, scaleFactor) }
+                                page.render(bitmap, null, matrix, PdfRenderer.Page.RENDER_MODE_FOR_PRINT)
 
-                for (i in 0 until renderer.pageCount) {
-                    val page = renderer.openPage(i)
-                    val origW = page.width
-                    val origH = page.height
-
-                    val scaledW = (origW * scaleFactor).toInt().coerceAtLeast(1)
-                    val scaledH = (origH * scaleFactor).toInt().coerceAtLeast(1)
-
-                    val bmp = Bitmap.createBitmap(scaledW, scaledH, Bitmap.Config.ARGB_8888)
-                    bmp.eraseColor(Color.WHITE)
-                    val matrix = android.graphics.Matrix().apply { postScale(scaleFactor, scaleFactor) }
-                    page.render(bmp, null, matrix, PdfRenderer.Page.RENDER_MODE_FOR_PRINT)
-                    page.close()
-
-                    val stream = ByteArrayOutputStream()
-                    bmp.compress(Bitmap.CompressFormat.JPEG, jpegQuality, stream)
-                    val compressedBmp = android.graphics.BitmapFactory.decodeByteArray(stream.toByteArray(), 0, stream.size())
-                    bmp.recycle()
-
-                    val pageInfo = PdfDocument.PageInfo.Builder(origW, origH, i + 1).create()
-                    val newPage = compressedDoc.startPage(pageInfo)
-                    val canvas = newPage.canvas
-                    val destRect = android.graphics.RectF(0f, 0f, origW.toFloat(), origH.toFloat())
-                    canvas.drawBitmap(compressedBmp, null, destRect, null)
-                    compressedBmp.recycle()
-                    compressedDoc.finishPage(newPage)
+                                val jpeg = ByteArrayOutputStream()
+                                check(bitmap.compress(Bitmap.CompressFormat.JPEG, jpegQuality, jpeg)) {
+                                    "Could not encode compressed page image."
+                                }
+                                val compressedBitmap = android.graphics.BitmapFactory.decodeByteArray(
+                                    jpeg.toByteArray(), 0, jpeg.size()
+                                ) ?: throw IllegalStateException("Could not decode compressed page image.")
+                                try {
+                                    val pageInfo = PdfDocument.PageInfo.Builder(origW, origH, i + 1).create()
+                                    val outputPage = compressedDoc.startPage(pageInfo)
+                                    outputPage.canvas.drawBitmap(
+                                        compressedBitmap,
+                                        null,
+                                        android.graphics.RectF(0f, 0f, origW.toFloat(), origH.toFloat()),
+                                        null
+                                    )
+                                    compressedDoc.finishPage(outputPage)
+                                } finally {
+                                    compressedBitmap.recycle()
+                                }
+                            } finally {
+                                bitmap.recycle()
+                            }
+                        } finally {
+                            page.close()
+                        }
+                    }
+                } finally {
+                    renderer.close()
                 }
-                renderer.close()
+            } finally {
                 pfd.close()
             }
 
-            FileOutputStream(targetFile).use { out ->
-                compressedDoc.writeTo(out)
-            }
-            compressedDoc.close()
-        } catch (_: Exception) {
-            writeRawMergedPdf(targetFile, 1)
+            FileOutputStream(targetFile).use { output -> compressedDoc.writeTo(output) }
+            require(targetFile.exists() && targetFile.length() > 0L) { "Compression did not create a valid output file." }
+            targetFile
+        } catch (error: Exception) {
+            targetFile.delete()
+            throw IllegalStateException(
+                "PDF compression failed. No replacement or placeholder PDF was created: ${error.message}",
+                error
+            )
         } finally {
+            compressedDoc.close()
             tempSource.delete()
         }
-
-        targetFile
     }
 
     /**
