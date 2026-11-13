@@ -71,10 +71,15 @@ class OfficeOpenXmlEditingEngine(private val context: Context) {
                         ?: throw IllegalArgumentException("Worksheet sheetData is missing.")
                     val rowNumber = cellReference.filter { it.isDigit() }.toInt()
                     val row = findOrCreateRow(xml, sheetData, rowNumber)
-                    val cell = (0 until row.childNodes.length).mapNotNull {
+                    val cells = (0 until row.childNodes.length).mapNotNull {
                         row.childNodes.item(it) as? Element
-                    }.firstOrNull { it.localName == "c" && it.getAttribute("r").equals(cellReference, true) }
-                        ?: xml.createElementNS(SHEET_NS, "c").also { row.appendChild(it) }
+                    }.filter { it.localName == "c" }
+                    val cell = cells.firstOrNull { it.getAttribute("r").equals(cellReference, true) }
+                        ?: xml.createElementNS(SHEET_NS, "c").also { newCell ->
+                            val targetColumn = columnIndex(cellReference)
+                            val nextCell = cells.firstOrNull { columnIndex(it.getAttribute("r")) > targetColumn }
+                            if (nextCell != null) row.insertBefore(newCell, nextCell) else row.appendChild(newCell)
+                        }
                     cell.setAttribute("r", cellReference.uppercase())
                     while (cell.hasChildNodes()) cell.removeChild(cell.firstChild)
                     if (formula != null) {
@@ -202,10 +207,17 @@ class OfficeOpenXmlEditingEngine(private val context: Context) {
             val row = data.childNodes.item(i) as? Element ?: continue
             if (row.localName == "row" && row.getAttribute("r").toIntOrNull() == number) return row
         }
-        return xml.createElementNS(SHEET_NS, "row").also {
-            it.setAttribute("r", number.toString())
-            data.appendChild(it)
-        }
+        val newRow = xml.createElementNS(SHEET_NS, "row").also { it.setAttribute("r", number.toString()) }
+        val nextRow = (0 until data.childNodes.length).mapNotNull { data.childNodes.item(it) as? Element }
+            .firstOrNull { it.localName == "row" && (it.getAttribute("r").toIntOrNull() ?: Int.MAX_VALUE) > number }
+        if (nextRow != null) data.insertBefore(newRow, nextRow) else data.appendChild(newRow)
+        return newRow
+    }
+
+    private fun columnIndex(reference: String): Int {
+        var result = 0
+        reference.takeWhile { it.isLetter() }.uppercase().forEach { result = result * 26 + (it - 'A' + 1) }
+        return result
     }
 
     private fun replaceUnique(xml: Document, namespace: String, tag: String,
