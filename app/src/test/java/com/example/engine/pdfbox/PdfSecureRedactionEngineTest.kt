@@ -39,8 +39,10 @@ class PdfSecureRedactionEngineTest {
         try {
             bitmap.eraseColor(Color.WHITE)
             engine.applyRedactionRectangles(bitmap, listOf(RectF(20f, 20f, 40f, 40f)), 100f, 100f)
-            assertEquals(Color.BLACK, bitmap.getPixel(20, 20))
-            assertEquals(Color.BLACK, bitmap.getPixel(40, 40))
+            assertEquals(Color.BLACK, bitmap.getPixel(18, 18))
+            assertEquals(Color.BLACK, bitmap.getPixel(41, 41))
+            assertEquals(Color.WHITE, bitmap.getPixel(17, 17))
+            assertEquals(Color.WHITE, bitmap.getPixel(42, 42))
             assertEquals(Color.WHITE, bitmap.getPixel(10, 10))
         } finally {
             bitmap.recycle()

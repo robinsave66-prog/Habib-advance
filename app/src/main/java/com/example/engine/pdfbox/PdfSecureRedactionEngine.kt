@@ -2,10 +2,8 @@ package com.example.engine.pdfbox
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Matrix
-import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
@@ -106,27 +104,25 @@ class PdfSecureRedactionEngine(private val context: Context) {
         require(pageWidthPoints > 0f && pageHeightPoints > 0f) { "Page dimensions must be positive." }
         val scaleX = bitmap.width / pageWidthPoints
         val scaleY = bitmap.height / pageHeightPoints
-        val canvas = Canvas(bitmap)
-        val paint = Paint().apply {
-            color = Color.BLACK
-            style = Paint.Style.FILL
-            isAntiAlias = false
-            alpha = 255
-        }
         rectanglesInPoints.forEach { bounds ->
             require(bounds.left.isFinite() && bounds.top.isFinite() &&
                 bounds.right.isFinite() && bounds.bottom.isFinite() &&
                 bounds.width() > 0f && bounds.height() > 0f) {
                 "A redaction area has invalid coordinates."
             }
-            val left = ((bounds.left - expansionPoints) * scaleX).coerceIn(0f, bitmap.width.toFloat())
-            val top = ((bounds.top - expansionPoints) * scaleY).coerceIn(0f, bitmap.height.toFloat())
-            val right = ((bounds.right + expansionPoints) * scaleX).coerceIn(0f, bitmap.width.toFloat())
-            val bottom = ((bounds.bottom + expansionPoints) * scaleY).coerceIn(0f, bitmap.height.toFloat())
+            val left = kotlin.math.floor(((bounds.left - expansionPoints) * scaleX).coerceIn(0f, bitmap.width.toFloat())).toInt()
+            val top = kotlin.math.floor(((bounds.top - expansionPoints) * scaleY).coerceIn(0f, bitmap.height.toFloat())).toInt()
+            val right = kotlin.math.ceil(((bounds.right + expansionPoints) * scaleX).coerceIn(0f, bitmap.width.toFloat())).toInt()
+            val bottom = kotlin.math.ceil(((bounds.bottom + expansionPoints) * scaleY).coerceIn(0f, bitmap.height.toFloat())).toInt()
             require(right > left && bottom > top) {
                 "A redaction area does not intersect the rendered page; refusing to save an unredacted result."
             }
-            canvas.drawRect(left, top, right, bottom, paint)
+            // Write opaque pixels directly. This avoids canvas backend variability and guarantees
+            // the redaction pixels are baked into the bitmap before it is encoded into the PDF.
+            val row = IntArray(right - left) { Color.BLACK }
+            for (y in top until bottom) {
+                bitmap.setPixels(row, 0, row.size, left, y, row.size, 1)
+            }
         }
     }
 
