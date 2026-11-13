@@ -32,6 +32,9 @@ class OfficeOpenXmlEditingEngineTest {
             val xml = z.getInputStream(z.getEntry("word/document.xml")).bufferedReader().readText()
             assertTrue(xml.contains("Hello Editor"))
             assertTrue(xml.contains("w:b"))
+            assertEquals("Header text stays", z.getInputStream(z.getEntry("word/header1.xml")).bufferedReader().readText().let {
+                Regex("<w:t>(.*?)</w:t>").find(it)?.groupValues?.get(1)
+            })
             assertEquals("image-bytes", z.getInputStream(z.getEntry("word/media/image1.png")).bufferedReader().readText())
         }
     }
