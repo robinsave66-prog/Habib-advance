@@ -44,7 +44,7 @@ class PdfNativeTextEditEngine(private val context: Context) {
         require(oldText.isNotBlank()) { "Select some existing PDF text first." }
         require(newText.isNotEmpty()) { "Replacement text cannot be empty." }
         require(isSupportedSimpleText(oldText) && isSupportedSimpleText(newText)) {
-            "This first native-edit mode supports printable English/ASCII text only. Bengali and Arabic support is being developed separately."
+            "This first native-edit mode supports printable English/ASCII text only. Bengali PDF text editing is not supported yet."
         }
 
         PDFBoxResourceLoader.init(context)
