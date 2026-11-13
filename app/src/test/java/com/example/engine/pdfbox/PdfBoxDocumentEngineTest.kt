@@ -105,7 +105,6 @@ class PdfBoxDocumentEngineTest {
             assertEquals(500f, document.getPage(2).mediaBox.width, 0.01f)
             assertEquals(250f, document.getPage(3).mediaBox.width, 0.01f)
         }
-        second.delete()
+        assertTrue(second.delete())
     }
-
 }
