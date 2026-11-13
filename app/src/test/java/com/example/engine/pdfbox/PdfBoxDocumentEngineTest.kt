@@ -161,4 +161,31 @@ class PdfBoxDocumentEngineTest {
         }
         assertTrue(second.delete())
     }
+
+    @Test
+    fun reorderPagesRejectsIncompleteDuplicateAndOutOfRangeOrders() = runBlocking {
+        val invalidOrders = listOf(
+            listOf(0, 1),       // incomplete permutation
+            listOf(0, 0, 2),    // duplicate page
+            listOf(0, 1, 3)     // out of range
+        )
+        invalidOrders.forEachIndexed { index, order ->
+            var rejected = false
+            try {
+                engine.reorderPages(
+                    Uri.fromFile(source), order, "invalid-page-order-$index.pdf"
+                )
+            } catch (_: IllegalArgumentException) {
+                rejected = true
+            }
+            assertTrue("Expected invalid page order to be rejected: $order", rejected)
+        }
+        PDDocument.load(source).use { original ->
+            assertEquals(3, original.numberOfPages)
+            assertEquals(300f, original.getPage(0).mediaBox.width, 0.01f)
+            assertEquals(400f, original.getPage(1).mediaBox.width, 0.01f)
+            assertEquals(500f, original.getPage(2).mediaBox.width, 0.01f)
+        }
+    }
+
 }
