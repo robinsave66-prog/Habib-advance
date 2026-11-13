@@ -305,7 +305,7 @@ class OfficeOpenXmlEditingEngine(private val context: Context) {
 
         for (paragraphIndex in 0 until paragraphs.length) {
             val paragraph = paragraphs.item(paragraphIndex)
-            val textNodes = paragraph.childTextNodes(namespace, textTag)
+            val textNodes = paragraph.childTextNodes(namespace, textTag, paragraphTag)
             if (textNodes.isEmpty()) continue
             val combined = textNodes.joinToString("") { it.textContent.orEmpty() }
             val count = occurrences(combined, old)
@@ -362,9 +362,29 @@ class OfficeOpenXmlEditingEngine(private val context: Context) {
         return true
     }
 
-    private fun org.w3c.dom.Node.childTextNodes(namespace: String, textTag: String): List<org.w3c.dom.Node> {
+    private fun org.w3c.dom.Node.childTextNodes(
+        namespace: String,
+        textTag: String,
+        paragraphTag: String
+    ): List<org.w3c.dom.Node> {
+        val paragraph = this
         val found = (this as? Element)?.getElementsByTagNameNS(namespace, textTag) ?: return emptyList()
-        return (0 until found.length).map { found.item(it) }
+        return (0 until found.length).map { found.item(it) }.filter { textNode ->
+            // Do not join text across a nested paragraph boundary (for example a text box).
+            var ancestor = textNode.parentNode
+            var nestedParagraph = false
+            while (ancestor != null && ancestor !== paragraph) {
+                if (ancestor is Element &&
+                    ancestor.namespaceURI == namespace &&
+                    ancestor.localName == paragraphTag
+                ) {
+                    nestedParagraph = true
+                    break
+                }
+                ancestor = ancestor.parentNode
+            }
+            !nestedParagraph
+        }
     }
 
     private fun preserveSpaceIfNeeded(element: Element?, value: String) {
