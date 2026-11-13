@@ -85,6 +85,14 @@ class OfficeOpenXmlEditingEngineTest {
             assertEquals("Updated", xml.getElementsByTagNameNS("http://schemas.openxmlformats.org/spreadsheetml/2006/main", "t").item(0).textContent)
             val formulaCell = cells.item(2) as org.w3c.dom.Element
             assertEquals("C1", formulaCell.getAttribute("r"))
+            val workbook = DocumentBuilderFactory.newInstance().apply { isNamespaceAware = true }
+                .newDocumentBuilder().parse(zip.getInputStream(zip.getEntry("xl/workbook.xml")))
+            val calc = workbook.getElementsByTagNameNS(
+                "http://schemas.openxmlformats.org/spreadsheetml/2006/main", "calcPr"
+            ).item(0) as org.w3c.dom.Element
+            assertEquals("auto", calc.getAttribute("calcMode"))
+            assertEquals("1", calc.getAttribute("fullCalcOnLoad"))
+            assertEquals("1", calc.getAttribute("forceFullCalc"))
             assertEquals("SUM(B1:B4)", formulaCell.getElementsByTagNameNS("http://schemas.openxmlformats.org/spreadsheetml/2006/main", "f").item(0).textContent)
         }
     }

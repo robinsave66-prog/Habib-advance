@@ -98,13 +98,19 @@ class OfficeOpenXmlEditingEngine(private val context: Context) {
             val worksheet = resolveSheet(source, sheetName)
             var worksheetUpdated = false
             rewriteZip(source, output) { name, bytes ->
-                if (name != worksheet) bytes else {
-                    val xml = parse(bytes)
-                    val sheetData = xml.getElementsByTagNameNS(SHEET_NS, "sheetData").item(0) as? Element
-                        ?: throw IllegalArgumentException("Worksheet sheetData is missing.")
-                    normalized.forEach { edit -> applyCellEdit(xml, sheetData, edit) }
-                    worksheetUpdated = true
-                    serialize(xml)
+                when (name) {
+                    worksheet -> {
+                        val xml = parse(bytes)
+                        val sheetData = xml.getElementsByTagNameNS(SHEET_NS, "sheetData").item(0) as? Element
+                            ?: throw IllegalArgumentException("Worksheet sheetData is missing.")
+                        normalized.forEach { edit -> applyCellEdit(xml, sheetData, edit) }
+                        worksheetUpdated = true
+                        serialize(xml)
+                    }
+                    "xl/workbook.xml" -> if (normalized.any { it.formula != null }) {
+                        serialize(markWorkbookForRecalculation(parse(bytes)))
+                    } else bytes
+                    else -> bytes
                 }
             }
             require(worksheetUpdated) { "The selected worksheet part is missing from the XLSX package." }
@@ -113,6 +119,27 @@ class OfficeOpenXmlEditingEngine(private val context: Context) {
             output.delete()
             throw error
         } finally { source.delete() }
+    }
+
+    /**
+     * Formula results are not evaluated by this editor. Ask compatible spreadsheet
+     * applications to perform a full automatic recalculation when the workbook opens.
+     */
+    private fun markWorkbookForRecalculation(xml: Document): Document {
+        val calculation = xml.getElementsByTagNameNS(SHEET_NS, "calcPr").item(0) as? Element
+            ?: xml.createElementNS(SHEET_NS, "calcPr").also { created ->
+                val workbook = xml.documentElement
+                val extensionList = workbook.getElementsByTagNameNS(SHEET_NS, "extLst").item(0)
+                if (extensionList != null && extensionList.parentNode === workbook) {
+                    workbook.insertBefore(created, extensionList)
+                } else {
+                    workbook.appendChild(created)
+                }
+            }
+        calculation.setAttribute("calcMode", "auto")
+        calculation.setAttribute("fullCalcOnLoad", "1")
+        calculation.setAttribute("forceFullCalc", "1")
+        return xml
     }
 
     private fun applyCellEdit(xml: Document, sheetData: Element, edit: XlsxCellEdit) {
