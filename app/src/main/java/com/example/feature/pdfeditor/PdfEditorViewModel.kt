@@ -66,6 +66,7 @@ class PdfEditorViewModel(
     private val renderer: IPdfRenderer = AndroidNativePdfRenderer(context)
     private val pageEngine = PdfBoxDocumentEngine(context)
     private val overlayExportEngine = PdfBoxOverlayExportEngine(context)
+    private val nativeTextEditEngine = PdfNativeTextEditEngine(context)
 
     private val _status = MutableStateFlow<EditorUiStatus>(EditorUiStatus.Idle)
     val status: StateFlow<EditorUiStatus> = _status.asStateFlow()
@@ -311,33 +312,82 @@ class PdfEditorViewModel(
     ) {
         val words = _selectedWords.value
         val page = _currentPage.value
-        pushUndo()
 
-        val minX = if (words.isNotEmpty()) words.minOf { it.bounds.left } else 60f
-        val minY = if (words.isNotEmpty()) words.minOf { it.bounds.top } else 100f
-        val origW = if (words.isNotEmpty()) (words.maxOf { it.bounds.right } - minX).coerceAtLeast(40f) else 140f
-        val origH = if (words.isNotEmpty()) (words.maxOf { it.bounds.bottom } - minY).coerceAtLeast(20f) else 30f
+        if (words.isEmpty()) {
+            // No source text is selected: create a new editable overlay text object.
+            val minX = 60f
+            val minY = 100f
+            val approxWidth = maxOf(140f, newText.length * fontSizePt * 0.65f)
+            addElement(
+                TextElement(
+                    pageIndex = page,
+                    x = minX,
+                    y = minY,
+                    width = approxWidth,
+                    height = fontSizePt + 6f,
+                    text = newText,
+                    fontSizePt = fontSizePt,
+                    textColor = textColor,
+                    backgroundColor = backgroundColor,
+                    isBold = isBold,
+                    isItalic = isItalic,
+                    isUnderline = isUnderline,
+                    textAlign = textAlign
+                )
+            )
+            return
+        }
 
-        val approxWidth = maxOf(origW, newText.length * fontSizePt * 0.65f)
+        val source = sourceDocUri
+        if (source == null) {
+            _status.value = EditorUiStatus.Error("The source PDF is not available for native text editing.")
+            return
+        }
+        val oldText = words.joinToString(" ") { it.text }.trim()
+        if (oldText.isBlank()) {
+            _status.value = EditorUiStatus.Error("No editable source text was selected.")
+            return
+        }
 
-        val replacementElem = TextElement(
-            pageIndex = page,
-            x = minX,
-            y = minY,
-            width = approxWidth,
-            height = origH.coerceAtLeast(fontSizePt + 6f),
-            text = newText,
-            fontSizePt = fontSizePt,
-            textColor = textColor,
-            backgroundColor = backgroundColor, // Respects null! No unwanted background box
-            isBold = isBold,
-            isItalic = isItalic,
-            isUnderline = isUnderline,
-            textAlign = textAlign
-        )
-
-        addElement(replacementElem)
-        _selectedWords.value = emptyList()
+        // Native replacement preserves the original PDF font, size, color and text state.
+        // Requested styling controls apply to newly inserted overlay text, not this operation.
+        _status.value = EditorUiStatus.Exporting("Editing the original PDF text…")
+        viewModelScope.launch {
+            try {
+                val editedFile = nativeTextEditEngine.replaceText(
+                    sourceUri = source,
+                    pageIndex = page,
+                    oldText = oldText,
+                    newText = newText,
+                    outputFileName = "Native_Text_Edit_${System.currentTimeMillis()}.pdf"
+                )
+                val editedUri = FileProvider.getUriForFile(
+                    context,
+                    "${context.packageName}.fileprovider",
+                    editedFile
+                )
+                when (val loaded = renderer.openDocument(editedUri)) {
+                    is PdfLoadResult.Success -> {
+                        sourceDocUri = editedUri
+                        _detectedWords.value = emptyMap()
+                        _selectedWords.value = emptyList()
+                        _selectedElementId.value = null
+                        _currentPage.value = page.coerceIn(0, loaded.documentInfo.pageCount - 1)
+                        _pageDimensions.value = renderer.getPageDimensions(_currentPage.value) ?: Pair(595, 842)
+                        _status.value = EditorUiStatus.Loaded(loaded.documentInfo)
+                    }
+                    is PdfLoadResult.PasswordRequired -> _status.value = EditorUiStatus.Error(loaded.message)
+                    is PdfLoadResult.Corrupted -> _status.value = EditorUiStatus.Error(loaded.message)
+                    is PdfLoadResult.Error -> _status.value = EditorUiStatus.Error(
+                        loaded.throwable.localizedMessage ?: "Could not reopen the natively edited PDF."
+                    )
+                }
+            } catch (error: Exception) {
+                _status.value = EditorUiStatus.Error(
+                    error.localizedMessage ?: "Native PDF text editing failed."
+                )
+            }
+        }
     }
 
     fun pasteTextAtPosition(
