@@ -4,15 +4,13 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.RectF
 import android.net.Uri
-import com.google.mlkit.vision.common.InputImage
-import com.google.mlkit.vision.text.TextRecognition
-import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import com.example.engine.ocr.OcrLanguage
+import com.example.engine.ocr.OfflineTesseractOcrEngine
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.text.PDFTextStripper
 import com.tom_roush.pdfbox.text.TextPosition
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
@@ -58,34 +56,25 @@ object PdfTextExtractionEngine {
         if (nativeWords.isNotEmpty()) return@withContext nativeWords
         if (pageBitmap == null || pageBitmap.isRecycled) return@withContext emptyList()
 
-        val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
         try {
-            val visionText = recognizer.process(InputImage.fromBitmap(pageBitmap, 0)).await()
-            val scaleX = pageWidthPt.toFloat() / pageBitmap.width.toFloat()
-            val scaleY = pageHeightPt.toFloat() / pageBitmap.height.toFloat()
-            buildList {
-                for (block in visionText.textBlocks) {
-                    for (line in block.lines) {
-                        for (element in line.elements) {
-                            val box = element.boundingBox ?: continue
-                            val left = box.left * scaleX
-                            val top = box.top * scaleY
-                            val right = box.right * scaleX
-                            val bottom = box.bottom * scaleY
-                            add(DetectedPdfWord(
-                                text = element.text,
-                                bounds = RectF(left, top, right, bottom),
-                                pageIndex = pageIndex,
-                                fontSizePt = ((bottom - top) * 0.85f).coerceIn(1f, 200f)
-                            ))
-                        }
-                    }
+            OfflineTesseractOcrEngine.openSession(context, OcrLanguage.BENGALI_AND_ENGLISH).use { session ->
+                val scaleX = pageWidthPt.toFloat() / pageBitmap.width.toFloat()
+                val scaleY = pageHeightPt.toFloat() / pageBitmap.height.toFloat()
+                session.recognizeWords(pageBitmap).map { word ->
+                    val left = word.bounds.left * scaleX
+                    val top = word.bounds.top * scaleY
+                    val right = word.bounds.right * scaleX
+                    val bottom = word.bounds.bottom * scaleY
+                    DetectedPdfWord(
+                        text = word.text,
+                        bounds = RectF(left, top, right, bottom),
+                        pageIndex = pageIndex,
+                        fontSizePt = ((bottom - top) * 0.85f).coerceIn(1f, 200f)
+                    )
                 }
             }
         } catch (_: Exception) {
             emptyList()
-        } finally {
-            recognizer.close()
         }
     }
 

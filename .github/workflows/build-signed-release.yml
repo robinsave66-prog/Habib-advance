@@ -61,6 +61,14 @@ jobs:
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/habib-advance-release.jks"
           test -s "$RUNNER_TEMP/habib-advance-release.jks"
 
+      - name: Download offline Bengali and English OCR models
+        run: |
+          mkdir -p app/src/main/assets/tessdata
+          curl --fail --location --retry 3 --output app/src/main/assets/tessdata/ben.traineddata https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/87416418657359cb625c412a48b6e1d6d41c29bd/ben.traineddata
+          curl --fail --location --retry 3 --output app/src/main/assets/tessdata/eng.traineddata https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/87416418657359cb625c412a48b6e1d6d41c29bd/eng.traineddata
+          test "$(stat -c%s app/src/main/assets/tessdata/ben.traineddata)" -eq 855841
+          test "$(stat -c%s app/src/main/assets/tessdata/eng.traineddata)" -eq 4113088
+
       - name: Run unit tests and build signed release APK
         env:
           KEYSTORE_PATH: ${{ runner.temp }}/habib-advance-release.jks

@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -69,27 +70,19 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.feature.documentcreator.DocumentCreatorEngine
+import com.example.engine.ocr.OcrLanguage
+import com.example.engine.ocr.OfflineTesseractOcrEngine
 import com.example.ui.components.UniversalResultDialog
-import com.google.mlkit.vision.common.InputImage
-import com.google.mlkit.vision.text.TextRecognition
-import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.text.PDFTextStripper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
-
-enum class OcrLanguage(val label: String, val code: String) {
-    ENGLISH("English (Latin)", "en"),
-    BENGALI("Bengali (not available yet)", "bn"),
-    ARABIC("Arabic (not available yet)", "ar")
-}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -105,7 +98,7 @@ fun OcrScannerScreen(
 
     var recognizedText by remember {
         mutableStateOf(
-            "HABIB ADVANCE EDITOR OCR SCANNER\n\nReady to scan images or PDF documents using Google ML Kit on-device intelligence.\nSelect an image from gallery or pick a multi-page PDF document to extract real editable text."
+            "HABIB ADVANCE EDITOR OCR SCANNER\n\nReady to scan images or PDF documents using offline Bengali and English OCR.\nSelect an image or multi-page PDF to extract editable text without an internet connection."
         )
     }
     var sourceLabel by remember { mutableStateOf("No document selected") }
@@ -128,10 +121,10 @@ fun OcrScannerScreen(
             sourceLabel = "Image Document"
             isScanning = true
             scanProgress = 0.3f
-            scanStatusMessage = "Analyzing image with ML Kit..."
+            scanStatusMessage = "Preparing offline OCR..."
             scope.launch {
-                val extracted = runMlKitImageOcr(context, uri)
-                recognizedText = if (extracted.isNotBlank()) extracted else "[ML Kit: No text detected in this image]"
+                val extracted = runOfflineImageOcr(context, uri, selectedLanguage)
+                recognizedText = if (extracted.isNotBlank()) extracted else "[Offline OCR: No text detected in this image]"
                 isScanning = false
                 scanProgress = 1f
                 scanStatusMessage = "Text extracted successfully!"
@@ -149,11 +142,11 @@ fun OcrScannerScreen(
             scanProgress = 0.1f
             scanStatusMessage = "Reading PDF pages..."
             scope.launch {
-                val extracted = runMlKitPdfOcr(context, uri) { current, total ->
+                val extracted = runOfflinePdfOcr(context, uri, selectedLanguage) { current, total ->
                     scanProgress = current.toFloat() / total.toFloat()
                     scanStatusMessage = "Scanning page $current of $total..."
                 }
-                recognizedText = if (extracted.isNotBlank()) extracted else "[ML Kit: No text detected in PDF]"
+                recognizedText = if (extracted.isNotBlank()) extracted else "[Offline OCR: No text detected in PDF]"
                 isScanning = false
                 scanStatusMessage = "Multi-page scan complete!"
             }
@@ -251,17 +244,17 @@ fun OcrScannerScreen(
                             OcrLanguage.values().forEach { lang ->
                                 FilterChip(
                                     selected = selectedLanguage == lang,
-                                    onClick = { if (lang == OcrLanguage.ENGLISH) selectedLanguage = lang },
-                                    enabled = lang == OcrLanguage.ENGLISH,
+                                    onClick = { selectedLanguage = lang },
+                                    enabled = !isScanning,
                                     label = { Text(lang.label) },
-                                    modifier = Modifier.testTag("ocr_lang_${lang.code}")
+                                    modifier = Modifier.testTag("ocr_lang_${lang.tessCode}")
                                 )
                             }
                         }
                     }
 
                     Text(
-                        "Only Latin-script OCR is currently integrated. Bengali and Arabic recognition are not enabled yet.",
+                        "Offline OCR supports English, Bengali, or both together. Language models are included with the app.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -413,32 +406,27 @@ fun OcrScannerScreen(
     }
 }
 
-private suspend fun runMlKitImageOcr(context: Context, uri: Uri): String = withContext(Dispatchers.IO) {
-    val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+private suspend fun runOfflineImageOcr(
+    context: Context,
+    uri: Uri,
+    language: OcrLanguage
+): String = withContext(Dispatchers.IO) {
+    val bitmap = context.contentResolver.openInputStream(uri)?.use { input ->
+        BitmapFactory.decodeStream(input)
+    } ?: return@withContext ""
     try {
-        val inputImage = InputImage.fromFilePath(context, uri)
-        recognizer.process(inputImage).await().text
-    } catch (_: Exception) {
-        try {
-            context.contentResolver.openInputStream(uri)?.use { stream ->
-                val bitmap = BitmapFactory.decodeStream(stream) ?: return@use ""
-                try {
-                    recognizer.process(InputImage.fromBitmap(bitmap, 0)).await().text
-                } finally {
-                    bitmap.recycle()
-                }
-            }.orEmpty()
-        } catch (_: Exception) {
-            ""
+        OfflineTesseractOcrEngine.openSession(context, language).use { session ->
+            session.recognize(bitmap)
         }
     } finally {
-        recognizer.close()
+        bitmap.recycle()
     }
 }
 
-private suspend fun runMlKitPdfOcr(
+private suspend fun runOfflinePdfOcr(
     context: Context,
     pdfUri: Uri,
+    language: OcrLanguage,
     onProgress: (current: Int, total: Int) -> Unit
 ): String = withContext(Dispatchers.IO) {
     val output = StringBuilder()
@@ -459,7 +447,7 @@ private suspend fun runMlKitPdfOcr(
             try {
                 val total = renderer.pageCount
                 if (total == 0) return@withContext ""
-                val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+                var ocrSession: OfflineTesseractOcrEngine.Session? = null
                 try {
                     for (index in 0 until total) {
                         onProgress(index + 1, total)
@@ -488,7 +476,8 @@ private suspend fun runMlKitPdfOcr(
                                 try {
                                     bitmap.eraseColor(android.graphics.Color.WHITE)
                                     page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_PRINT)
-                                    pageText = recognizer.process(InputImage.fromBitmap(bitmap, 0)).await().text.trim()
+                                    if (ocrSession == null) ocrSession = OfflineTesseractOcrEngine.openSession(context, language)
+                                    pageText = ocrSession!!.recognize(bitmap)
                                 } finally {
                                     bitmap.recycle()
                                 }
@@ -503,7 +492,7 @@ private suspend fun runMlKitPdfOcr(
                         }
                     }
                 } finally {
-                    recognizer.close()
+                    ocrSession?.close()
                 }
             } finally {
                 renderer.close()

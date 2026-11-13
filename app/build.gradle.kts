@@ -124,7 +124,8 @@ dependencies {
   implementation(libs.logging.interceptor)
   implementation(libs.moshi.kotlin)
   implementation(libs.okhttp)
-  implementation(libs.mlkit.text.recognition)
+  // Tesseract 5 offline OCR (Apache-2.0); Bengali and English models are packaged at build time.
+  implementation("cz.adaptech.tesseract4android:tesseract4android:4.9.0")
   // Apache-2.0 PDF object and page manipulation engine.
   implementation("com.tom-roush:pdfbox-android:2.0.27.0")
   // implementation(libs.play.services.location)
@@ -144,4 +145,38 @@ dependencies {
   debugImplementation(libs.androidx.compose.ui.tooling)
   "ksp"(libs.androidx.room.compiler)
   "ksp"(libs.moshi.kotlin.codegen)
+}
+
+
+// Download pinned official tessdata_fast models so the installed APK works offline.
+val ocrModelSpecs = listOf(
+  Triple("ben", "7e9054d1de309714009a85555f5276168d41af9c", 855841L),
+  Triple("eng", "bbef4675053b5b468cdb477053e28b1c698ba08e", 4113088L)
+)
+val downloadOcrLanguageModels = tasks.register("downloadOcrLanguageModels") {
+  val modelDirectory = layout.projectDirectory.dir("src/main/assets/tessdata")
+  outputs.files(ocrModelSpecs.map { modelDirectory.file("${it.first}.traineddata") })
+  doLast {
+    val directory = modelDirectory.asFile.apply { mkdirs() }
+    ocrModelSpecs.forEach { (language, _, expectedSize) ->
+      val target = java.io.File(directory, "$language.traineddata")
+      if (!target.exists() || target.length() != expectedSize) {
+        val temporary = java.io.File(directory, "$language.traineddata.download")
+        val modelUrl = "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/87416418657359cb625c412a48b6e1d6d41c29bd/$language.traineddata"
+        java.net.URL(modelUrl).openConnection().apply {
+          connectTimeout = 20000
+          readTimeout = 60000
+        }.getInputStream().use { input ->
+          temporary.outputStream().use { output -> input.copyTo(output) }
+        }
+        check(temporary.length() == expectedSize) {
+          "Downloaded $language OCR model has an unexpected size: ${temporary.length()}"
+        }
+        check(temporary.renameTo(target)) { "Unable to install $language OCR model." }
+      }
+    }
+  }
+}
+tasks.named("preBuild").configure {
+  dependsOn(downloadOcrLanguageModels)
 }

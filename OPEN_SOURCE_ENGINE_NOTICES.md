@@ -16,3 +16,13 @@ The PDF editor must preserve original PDF page content when applying supported p
 ## Office formats
 
 Apache POI is under evaluation for structured DOCX/XLSX/PPTX editing. It is not yet integrated into the editing workflow. Existing XML extraction screens remain viewers, not full Office editors, until round-trip editing and regression tests are implemented.
+
+
+## Offline OCR
+
+- Android wrapper: Tesseract4Android 4.9.0, Apache License 2.0.
+- OCR engine: Tesseract 5.5.1 with Leptonica 1.85.0.
+- Language models: official `tessdata_fast` Bengali (`ben`) and English (`eng`) models from commit `87416418657359cb625c412a48b6e1d6d41c29bd`, Apache License 2.0.
+- Models are embedded in the APK at build time. The app copies them to private storage on first OCR use; recognition then works offline.
+- Supported choices: English, Bengali, and Bengali + English. Arabic OCR is not included.
+- Sources: https://github.com/adaptech-cz/Tesseract4Android and https://github.com/tesseract-ocr/tessdata_fast
