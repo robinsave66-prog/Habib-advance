@@ -7,6 +7,8 @@ import com.tom_roush.pdfbox.multipdf.PDFMergerUtility
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.io.MemoryUsageSetting
 import com.tom_roush.pdfbox.pdmodel.PDPage
+import com.tom_roush.pdfbox.pdmodel.encryption.AccessPermission
+import com.tom_roush.pdfbox.pdmodel.encryption.StandardProtectionPolicy
 import com.tom_roush.pdfbox.pdmodel.common.PDRectangle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -163,6 +165,67 @@ class PdfBoxDocumentEngine(private val context: Context) {
             throw error
         } finally {
             temporaryFiles.forEach(File::delete)
+        }
+    }
+
+    /**
+     * Adds standard PDF password encryption while retaining the original page objects.
+     * User password opens the document; owner password controls permission changes.
+     */
+    suspend fun protectPdf(
+        sourceUri: Uri,
+        userPassword: String,
+        ownerPassword: String,
+        outputFileName: String
+    ): File = withContext(Dispatchers.IO) {
+        require(userPassword.length >= 6) { "The user password must contain at least 6 characters." }
+        require(ownerPassword.length >= 6) { "The owner password must contain at least 6 characters." }
+        require(userPassword != ownerPassword) { "Use different user and owner passwords." }
+        editSource(sourceUri, outputFileName) { document ->
+            val permissions = AccessPermission().apply {
+                setCanPrint(true)
+                setCanModify(false)
+                setCanExtractContent(false)
+                setCanModifyAnnotations(false)
+                setCanFillInForm(false)
+                setCanAssembleDocument(false)
+            }
+            val policy = StandardProtectionPolicy(ownerPassword, userPassword, permissions).apply {
+                setEncryptionKeyLength(128)
+                setPermissions(permissions)
+            }
+            document.protect(policy)
+        }
+    }
+
+    /**
+     * Removes PDF encryption only when the supplied password is valid.
+     */
+    suspend fun removePassword(
+        sourceUri: Uri,
+        password: String,
+        outputFileName: String
+    ): File = withContext(Dispatchers.IO) {
+        require(password.isNotBlank()) { "Enter the current PDF password." }
+        PDFBoxResourceLoader.init(context)
+        val source = copyUriToCache(sourceUri)
+        var output: File? = null
+        try {
+            PDDocument.load(source, password).use { document ->
+                document.setAllSecurityToBeRemoved(true)
+                output = createOutputFile(outputFileName)
+                document.save(output)
+            }
+            output?.takeIf { it.exists() && it.length() > 0L }
+                ?: throw IllegalStateException("The unlocked PDF could not be saved.")
+        } catch (error: Exception) {
+            output?.delete()
+            throw IllegalStateException(
+                "Could not remove PDF protection. Check the password and file permissions: ${error.message}",
+                error
+            )
+        } finally {
+            source.delete()
         }
     }
 
