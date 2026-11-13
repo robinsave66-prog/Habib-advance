@@ -49,11 +49,11 @@ class PdfNativeTextEditEngineTest {
     @Test
     fun replacesNativeTextOperandAndPreservesSurroundingText() = runBlocking {
         val output = engine.replaceText(
-            Uri.fromFile(source), 0, "ABC", "BCD", "native-text-edit-success.pdf"
+            Uri.fromFile(source), 0, "ABC", "BCA", "native-text-edit-success.pdf"
         )
         PDDocument.load(output).use { edited ->
             val text = PDFTextStripper().getText(edited)
-            assertTrue(text.contains("Start BCD End"))
+            assertTrue(text.contains("Start BCA End"))
             assertFalse(text.contains("Start ABC End"))
         }
         PDDocument.load(source).use { original ->
