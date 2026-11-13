@@ -26,8 +26,7 @@ class OfficeOpenXmlEditingEngine(private val context: Context) {
         editTextPackage(sourceUri, outputFileName, "docx") { name, bytes ->
             if (name.matches(Regex("word/(document|header\\d*|footer\\d*|footnotes|endnotes)\\.xml"))) {
                 val xml = parse(bytes)
-                replaceUnique(xml, WORD_NS, "t", oldText, newText, "DOCX")
-                serialize(xml)
+                if (replaceUnique(xml, WORD_NS, "t", oldText, newText, "DOCX")) serialize(xml) else bytes
             } else bytes
         }
     }
@@ -38,8 +37,7 @@ class OfficeOpenXmlEditingEngine(private val context: Context) {
         editTextPackage(sourceUri, outputFileName, "pptx") { name, bytes ->
             if (name.matches(Regex("ppt/slides/slide\\d+\\.xml"))) {
                 val xml = parse(bytes)
-                replaceUnique(xml, DRAWING_NS, "t", oldText, newText, "PPTX")
-                serialize(xml)
+                if (replaceUnique(xml, DRAWING_NS, "t", oldText, newText, "PPTX")) serialize(xml) else bytes
             } else bytes
         }
     }
@@ -108,9 +106,6 @@ class OfficeOpenXmlEditingEngine(private val context: Context) {
         val source = copySource(uri)
         val output = outputFile(name, extension)
         try {
-            require(uri.lastPathSegment.orEmpty().substringAfterLast('.', "").lowercase() == extension) {
-                "Selected file is not a valid " + extension.uppercase() + " document."
-            }
             var modified = false
             rewriteZip(source, output) { entry, bytes ->
                 val changed = transform(entry, bytes)
@@ -204,16 +199,15 @@ class OfficeOpenXmlEditingEngine(private val context: Context) {
     }
 
     private fun replaceUnique(xml: Document, namespace: String, tag: String,
-        old: String, replacement: String, format: String) {
+        old: String, replacement: String, format: String): Boolean {
         val nodes = xml.getElementsByTagNameNS(namespace, tag)
         val matches = (0 until nodes.length).map { nodes.item(it) }
             .filter { it.textContent.contains(old) }
         val count = matches.sumOf { occurrences(it.textContent, old) }
-        require(count == 1) {
-            if (count == 0) "Text not found in editable " + format + " text runs."
-            else "Text occurs more than once. Select a more specific phrase."
-        }
+        require(count <= 1) { "Text occurs more than once in this " + format + " part. Select a more specific phrase." }
+        if (count == 0) return false
         matches.single().textContent = matches.single().textContent.replace(old, replacement)
+        return true
     }
 
     private fun occurrences(text: String, needle: String): Int {
