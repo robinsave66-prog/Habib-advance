@@ -96,11 +96,8 @@ fun OcrScannerScreen(
     val clipboardManager = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
 
-    var recognizedText by remember {
-        mutableStateOf(
-            "HABIB ADVANCE EDITOR OCR SCANNER\n\nReady to scan images or PDF documents using offline Bengali and English OCR.\nSelect an image or multi-page PDF to extract editable text without an internet connection."
-        )
-    }
+    // Keep the result empty until a real OCR operation returns recognized text.
+    var recognizedText by remember { mutableStateOf("") }
     var sourceLabel by remember { mutableStateOf("No document selected") }
     var selectedLanguage by remember { mutableStateOf(OcrLanguage.ENGLISH) }
 
@@ -190,6 +187,7 @@ fun OcrScannerScreen(
                             clipboardManager.setText(AnnotatedString(recognizedText))
                             Toast.makeText(context, "Text copied to clipboard", Toast.LENGTH_SHORT).show()
                         },
+                        enabled = recognizedText.isNotBlank() && !isScanning,
                         modifier = Modifier.testTag("ocr_copy_all_button")
                     ) {
                         Icon(Icons.Default.ContentCopy, contentDescription = "Copy All")
