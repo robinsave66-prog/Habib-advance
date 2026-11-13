@@ -84,8 +84,8 @@ import java.util.zip.ZipOutputStream
 
 enum class OcrLanguage(val label: String, val code: String) {
     ENGLISH("English (Latin)", "en"),
-    BENGALI("Bengali", "bn"),
-    ARABIC("Arabic", "ar")
+    BENGALI("Bengali (not available yet)", "bn"),
+    ARABIC("Arabic (not available yet)", "ar")
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -248,13 +248,20 @@ fun OcrScannerScreen(
                             OcrLanguage.values().forEach { lang ->
                                 FilterChip(
                                     selected = selectedLanguage == lang,
-                                    onClick = { selectedLanguage = lang },
+                                    onClick = { if (lang == OcrLanguage.ENGLISH) selectedLanguage = lang },
+                                    enabled = lang == OcrLanguage.ENGLISH,
                                     label = { Text(lang.label) },
                                     modifier = Modifier.testTag("ocr_lang_${lang.code}")
                                 )
                             }
                         }
                     }
+
+                    Text(
+                        "Only Latin-script OCR is currently integrated. Bengali and Arabic recognition are not enabled yet.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
 
                     // Progress State Indicator
                     if (isScanning) {
