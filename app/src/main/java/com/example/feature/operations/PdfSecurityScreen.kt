@@ -217,9 +217,10 @@ fun PdfSecurityScreen(
                         }
                     }
                 },
-                enabled = sourceUri != null && !isProcessing &&
+                enabled = sourceUri != null && !isProcessing && (
                     if (mode == PdfSecurityMode.PROTECT) userPassword.length >= 6 && ownerPassword.length >= 6 && userPassword != ownerPassword
-                    else currentPassword.isNotBlank(),
+                    else currentPassword.isNotBlank()
+                ),
                 modifier = Modifier.fillMaxWidth().height(52.dp).testTag("pdf_security_execute_button"),
                 shape = RoundedCornerShape(12.dp)
             ) {
