@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -797,7 +798,7 @@ private fun XlsxContentViewer(
                             Box(
                                 modifier = Modifier
                                     .width(135.dp)
-                                    .height(38.dp)
+                                    .heightIn(min = 38.dp)
                                     .background(if (isMatch) Color(0xFFFFF9C4) else Color.Transparent)
                                     .border(0.5.dp, Color(0xFFCBD5E1))
                                     .padding(horizontal = 8.dp),
@@ -807,7 +808,7 @@ private fun XlsxContentViewer(
                                     text = cellText,
                                     style = MaterialTheme.typography.bodySmall,
                                     fontWeight = if (isHeader || isMatch) FontWeight.Bold else FontWeight.Normal,
-                                    maxLines = 1,
+                                    maxLines = 4,
                                     color = if (isMatch) Color(0xFFB71C1C) else Color(0xFF1E293B)
                                 )
                             }
