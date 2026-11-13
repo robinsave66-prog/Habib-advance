@@ -11,6 +11,8 @@ import com.tom_roush.pdfbox.pdmodel.PDPageContentStream
 import com.tom_roush.pdfbox.pdmodel.common.PDRectangle
 import com.tom_roush.pdfbox.pdmodel.font.PDType1Font
 import com.tom_roush.pdfbox.pdmodel.graphics.image.PDImageXObject
+import com.tom_roush.pdfbox.rendering.ImageType
+import com.tom_roush.pdfbox.rendering.PDFRenderer
 import com.tom_roush.pdfbox.text.PDFTextStripper
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -141,6 +143,30 @@ class PdfBoxOverlayExportEngineTest {
                 resources.getXObject(name) is PDImageXObject
             }
             assertTrue("Bengali overlay should be embedded as a rendered image", imageNames.isNotEmpty())
+
+            // Verify the embedded Bengali overlay produces visible colored pixels when rendered,
+            // rather than merely checking that an image XObject exists in the PDF resources.
+            val rendered = PDFRenderer(result).renderImage(0, 2f, ImageType.RGB)
+            try {
+                var visibleOverlayPixels = 0
+                for (y in 0 until rendered.height) {
+                    for (x in 0 until rendered.width) {
+                        val pixel = rendered.getPixel(x, y)
+                        val red = android.graphics.Color.red(pixel)
+                        val green = android.graphics.Color.green(pixel)
+                        val blue = android.graphics.Color.blue(pixel)
+                        if (blue > red + 12 && blue > green + 4) {
+                            visibleOverlayPixels++
+                        }
+                    }
+                }
+                assertTrue(
+                    "Bengali overlay should render visible colored glyph pixels",
+                    visibleOverlayPixels > 20
+                )
+            } finally {
+                rendered.recycle()
+            }
         }
         assertTrue(source.exists())
         assertTrue(output.length() > 0L)
