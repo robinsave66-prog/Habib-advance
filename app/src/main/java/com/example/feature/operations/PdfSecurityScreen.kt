@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -135,7 +136,7 @@ fun PdfSecurityScreen(
                         modifier = Modifier.fillMaxWidth().testTag("pdf_security_pick_button")
                     ) {
                         Icon(Icons.Default.FileOpen, contentDescription = null)
-                        Spacer(Modifier.height(0.dp))
+                        Spacer(Modifier.width(8.dp))
                         Text(if (sourceUri == null) "Choose PDF File" else "Change PDF: ${sourceName ?: "Selected"}")
                     }
                     if (sourceUri != null) {
