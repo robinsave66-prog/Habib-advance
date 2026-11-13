@@ -111,6 +111,10 @@ dependencies {
   implementation(libs.coil.compose)
   implementation(libs.converter.moshi)
   implementation(libs.firebase.ai)
+  // ML Kit Latin OCR used by rich PDF-to-DOCX extraction.
+  implementation(libs.mlkit.text.recognition)
+  // Task.await() bridge for Google Play Services asynchronous APIs.
+  implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.10.2")
   // Uncomment to use Firestore:
   // implementation(libs.firebase.firestore)
 
