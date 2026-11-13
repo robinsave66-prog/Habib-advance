@@ -1358,7 +1358,7 @@ fun PdfEditorScreen(
             text = {
                 Column {
                     Text(
-                        text = "Edits and replacement text will be compiled into a brand new PDF document. The original file remains completely untouched.",
+                        text = "A new PDF copy will be created and the original file will remain untouched. Current export flattens each original page to an image before adding overlays, so original text may not remain selectable or searchable.",
                         style = MaterialTheme.typography.bodyMedium
                     )
                     Spacer(modifier = Modifier.height(12.dp))
@@ -1396,7 +1396,7 @@ fun PdfEditorScreen(
             file = success.exportedFile,
             additionalDetails = listOf(
                 "Pages" to "${viewModel.elements.value.size.coerceAtLeast(1)} modified pages",
-                "Format" to "Standard 72-DPI Vector PDF"
+                "Export" to "Flattened-page PDF with overlays"
             ),
             onDismiss = { viewModel.resetExportStatus() },
             onOpenFile = {
