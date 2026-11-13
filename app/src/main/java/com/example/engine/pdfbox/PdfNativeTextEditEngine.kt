@@ -23,7 +23,8 @@ import java.io.FileOutputStream
  *
  * This edits the original Tj/TJ string operand in the page content stream. It deliberately
  * supports only a unique, printable-ASCII match contained in one text-show string, encoded
- * by the active page font, with exactly the same glyph advance width and character count.
+ * by the active page font, with exactly the same glyph advance width. Replacement character
+ * count may differ when the rendered advance remains identical.
  * Unsupported layouts are rejected instead of being covered with a white rectangle or
  * silently shifting the rest of the page.
  *
@@ -42,9 +43,6 @@ class PdfNativeTextEditEngine(private val context: Context) {
         require(pageIndex >= 0) { "Page index cannot be negative." }
         require(oldText.isNotBlank()) { "Select some existing PDF text first." }
         require(newText.isNotEmpty()) { "Replacement text cannot be empty." }
-        require(oldText.length == newText.length) {
-            "This safe edit currently requires the replacement to have the same number of characters."
-        }
         require(isSupportedSimpleText(oldText) && isSupportedSimpleText(newText)) {
             "This first native-edit mode supports printable English/ASCII text only. Bengali and Arabic support is being developed separately."
         }
