@@ -151,7 +151,6 @@ fun PdfEditorScreen(
     var showSaveDialog by remember { mutableStateOf(false) }
     var showPageOperationsDialog by remember { mutableStateOf(false) }
     var showRedactionConfirm by remember { mutableStateOf(false) }
-    var pendingCutText by remember { mutableStateOf<String?>(null) }
     var pageSelectionInput by remember { mutableStateOf("1") }
     var saveFileNameInput by remember { mutableStateOf("Edited_${documentName ?: "Document.pdf"}") }
 
@@ -904,7 +903,6 @@ fun PdfEditorScreen(
                                     onCut = {
                                         val text = viewModel.copySelectedWords(context)
                                         if (text.isNotBlank()) {
-                                            pendingCutText = text
                                             showRedactionConfirm = true
                                         }
                                     },
@@ -926,7 +924,6 @@ fun PdfEditorScreen(
                                         showTextDialog = true
                                     },
                                     onDelete = {
-                                        pendingCutText = null
                                         showRedactionConfirm = true
                                     },
                                     onSelectAll = { viewModel.selectAllWordsOnCurrentPage() },
@@ -956,7 +953,6 @@ fun PdfEditorScreen(
         AlertDialog(
             onDismissRequest = {
                 showRedactionConfirm = false
-                pendingCutText = null
             },
             title = { Text("Permanently redact selected text?") },
             text = {
@@ -968,7 +964,6 @@ fun PdfEditorScreen(
                 Button(
                     onClick = {
                         showRedactionConfirm = false
-                        pendingCutText = null
                         viewModel.deleteSelectedWords()
                         Toast.makeText(context, "Applying permanent redaction. Please wait…", Toast.LENGTH_LONG).show()
                     }

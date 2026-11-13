@@ -123,7 +123,10 @@ class PdfSecureRedactionEngine(private val context: Context) {
             val top = ((bounds.top - expansionPoints) * scaleY).coerceIn(0f, bitmap.height.toFloat())
             val right = ((bounds.right + expansionPoints) * scaleX).coerceIn(0f, bitmap.width.toFloat())
             val bottom = ((bounds.bottom + expansionPoints) * scaleY).coerceIn(0f, bitmap.height.toFloat())
-            if (right > left && bottom > top) canvas.drawRect(left, top, right, bottom, paint)
+            require(right > left && bottom > top) {
+                "A redaction area does not intersect the rendered page; refusing to save an unredacted result."
+            }
+            canvas.drawRect(left, top, right, bottom, paint)
         }
     }
 
