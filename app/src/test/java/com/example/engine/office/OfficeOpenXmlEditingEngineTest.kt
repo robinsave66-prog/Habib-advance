@@ -200,6 +200,24 @@ class OfficeOpenXmlEditingEngineTest {
         }
     }
 
+    @Test fun docxReplacementDoesNotJoinTextAcrossNestedParagraphs() {
+        val file = zip("office-nested-paragraph.docx", mapOf(
+            "word/document.xml" to """<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Alpha</w:t></w:r><w:r><w:drawing><w:txbxContent><w:p><w:r><w:t>Beta</w:t></w:r></w:p></w:txbxContent></w:drawing></w:r></w:p></w:body></w:document>"""
+        ))
+        var rejected = false
+        try {
+            runBlocking {
+                engine.replaceDocxText(
+                    Uri.fromFile(file), "AlphaBeta", "Changed",
+                    "nested-paragraph-out.docx"
+                )
+            }
+        } catch (_: IllegalArgumentException) {
+            rejected = true
+        }
+        assertTrue("Text in separate nested paragraphs must not be treated as one phrase", rejected)
+    }
+
     @Test fun repeatedDocxTextIsRejectedRatherThanChangingMultipleLocations() {
         val file = zip("office-ambiguous.docx", mapOf(
             "word/document.xml" to """<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>same same</w:t></w:r></w:p></w:body></w:document>"""
