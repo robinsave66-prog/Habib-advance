@@ -57,6 +57,9 @@ import androidx.compose.material.icons.filled.Transform
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.ZoomIn
 import androidx.compose.material.icons.filled.ZoomOut
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import com.example.engine.office.OfficeOpenXmlEditingEngine
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -191,6 +194,16 @@ fun DocumentViewerScreen(
     var isLoading by remember { mutableStateOf(true) }
     var parsedContent by remember { mutableStateOf<ParsedDocumentContent?>(null) }
     var isConvertingToPdf by remember { mutableStateOf(false) }
+    var showOfficeEditDialog by remember { mutableStateOf(false) }
+    var isOfficeEditing by remember { mutableStateOf(false) }
+    var officeFindText by remember { mutableStateOf("") }
+    var officeReplaceText by remember { mutableStateOf("") }
+    var officeSheetName by remember { mutableStateOf("") }
+    var officeCellReference by remember { mutableStateOf("A1") }
+    var officeCellValue by remember { mutableStateOf("") }
+    var officeFormula by remember { mutableStateOf("") }
+    var pendingOfficeOutput by remember { mutableStateOf<File?>(null) }
+    val officeEditingEngine = remember(context) { OfficeOpenXmlEditingEngine(context) }
 
     // Search query state
     var showSearchBar by remember { mutableStateOf(false) }
@@ -203,12 +216,16 @@ fun DocumentViewerScreen(
         if (destinationUri != null) {
             scope.launch(Dispatchers.IO) {
                 try {
-                    context.contentResolver.openInputStream(documentUri)?.use { inStream ->
-                        context.contentResolver.openOutputStream(destinationUri)?.use { outStream ->
-                            inStream.copyTo(outStream)
-                            outStream.flush()
+                    val editedFile = pendingOfficeOutput
+                    context.contentResolver.openOutputStream(destinationUri)?.use { outStream ->
+                        if (editedFile != null) {
+                            editedFile.inputStream().use { it.copyTo(outStream) }
+                        } else {
+                            context.contentResolver.openInputStream(documentUri)?.use { it.copyTo(outStream) }
                         }
+                        outStream.flush()
                     }
+                    pendingOfficeOutput = null
                     withContext(Dispatchers.Main) {
                         Toast.makeText(context, "Saved to device storage successfully!", Toast.LENGTH_SHORT).show()
                     }
@@ -286,6 +303,23 @@ fun DocumentViewerScreen(
                         }
                     },
                     actions = {
+                        if (formatType in listOf(DocumentFormatType.DOCX, DocumentFormatType.XLSX, DocumentFormatType.PPTX)) {
+                            IconButton(
+                                onClick = {
+                                    officeFindText = ""
+                                    officeReplaceText = ""
+                                    officeSheetName = parsedContent?.spreadsheetSheets?.keys?.firstOrNull().orEmpty()
+                                    officeCellReference = "A1"
+                                    officeCellValue = ""
+                                    officeFormula = ""
+                                    showOfficeEditDialog = true
+                                },
+                                enabled = !isOfficeEditing,
+                                modifier = Modifier.testTag("office_native_edit_button")
+                            ) {
+                                Icon(Icons.Default.Edit, contentDescription = "Edit Office document")
+                            }
+                        }
                         // Search Toggle for text-based formats
                         if (formatType in listOf(DocumentFormatType.DOCX, DocumentFormatType.XLSX, DocumentFormatType.PPTX, DocumentFormatType.TXT, DocumentFormatType.RTF, DocumentFormatType.HTML)) {
                             IconButton(
@@ -489,6 +523,112 @@ fun DocumentViewerScreen(
                 }
             }
         }
+    }
+
+    if (showOfficeEditDialog) {
+        AlertDialog(
+            onDismissRequest = { if (!isOfficeEditing) showOfficeEditDialog = false },
+            title = { Text(when (formatType) {
+                DocumentFormatType.DOCX -> "Edit Word document"
+                DocumentFormatType.XLSX -> "Edit Excel cell"
+                else -> "Edit PowerPoint slide text"
+            }) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (formatType == DocumentFormatType.XLSX) {
+                        OutlinedTextField(
+                            value = officeSheetName,
+                            onValueChange = { officeSheetName = it },
+                            label = { Text("Worksheet name") },
+                            singleLine = true
+                        )
+                        OutlinedTextField(
+                            value = officeCellReference,
+                            onValueChange = { officeCellReference = it.uppercase() },
+                            label = { Text("Cell (e.g. A1)") },
+                            singleLine = true
+                        )
+                        OutlinedTextField(
+                            value = officeCellValue,
+                            onValueChange = { officeCellValue = it },
+                            label = { Text("Cell value") },
+                            minLines = 2
+                        )
+                        OutlinedTextField(
+                            value = officeFormula,
+                            onValueChange = { officeFormula = it },
+                            label = { Text("Formula (optional, e.g. SUM(A1:A5))") },
+                            singleLine = true
+                        )
+                    } else {
+                        OutlinedTextField(
+                            value = officeFindText,
+                            onValueChange = { officeFindText = it },
+                            label = { Text("Existing text to find") },
+                            minLines = 1
+                        )
+                        OutlinedTextField(
+                            value = officeReplaceText,
+                            onValueChange = { officeReplaceText = it },
+                            label = { Text("Replace with") },
+                            minLines = 1
+                        )
+                    }
+                    Text(
+                        text = "This edits native Office XML parts and preserves unrelated package parts. It does not provide full layout editing or formula recalculation yet.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !isOfficeEditing && if (formatType == DocumentFormatType.XLSX) {
+                        officeSheetName.isNotBlank() && officeCellReference.isNotBlank() &&
+                            (officeFormula.isNotBlank() || officeCellValue.isNotBlank())
+                    } else officeFindText.isNotBlank(),
+                    onClick = {
+                        isOfficeEditing = true
+                        scope.launch {
+                            try {
+                                val output = when (formatType) {
+                                    DocumentFormatType.DOCX -> officeEditingEngine.replaceDocxText(
+                                        documentUri, officeFindText, officeReplaceText,
+                                        resolvedName.substringBeforeLast(".") + "_edited.docx"
+                                    )
+                                    DocumentFormatType.PPTX -> officeEditingEngine.replacePptxText(
+                                        documentUri, officeFindText, officeReplaceText,
+                                        resolvedName.substringBeforeLast(".") + "_edited.pptx"
+                                    )
+                                    DocumentFormatType.XLSX -> officeEditingEngine.setXlsxCellValue(
+                                        documentUri, officeSheetName, officeCellReference,
+                                        officeCellValue, officeFormula.ifBlank { null },
+                                        resolvedName.substringBeforeLast(".") + "_edited.xlsx"
+                                    )
+                                    else -> throw IllegalArgumentException("This Office format is not editable.")
+                                }
+                                showOfficeEditDialog = false
+                                pendingOfficeOutput = output
+                                Toast.makeText(context, "Edit applied. Choose where to save the edited file.", Toast.LENGTH_LONG).show()
+                                saveToDeviceLauncher.launch(output.name)
+                            } catch (error: Exception) {
+                                Toast.makeText(context, error.localizedMessage ?: "Office editing failed.", Toast.LENGTH_LONG).show()
+                            } finally {
+                                isOfficeEditing = false
+                            }
+                        }
+                    }
+                ) {
+                    if (isOfficeEditing) CircularProgressIndicator(modifier = Modifier.size(18.dp))
+                    else Text("Apply and Save")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showOfficeEditDialog = false }, enabled = !isOfficeEditing) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 }
 
