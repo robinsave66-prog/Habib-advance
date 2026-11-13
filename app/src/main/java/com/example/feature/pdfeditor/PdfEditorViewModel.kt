@@ -637,9 +637,14 @@ class PdfEditorViewModel(
             "Duplicating page…", "Page_Duplicate_${System.currentTimeMillis()}.pdf",
             { uri, name -> pageEngine.duplicatePage(uri, page, name) },
             page + 1,
-            { elements -> elements.map { (index, items) ->
-                (if (index > page) index + 1 else index) to items
-            }.toMutableMap().apply { elements[page]?.let { put(page + 1, it) } } }
+            { elements ->
+                val remapped = mutableMapOf<Int, List<EditorElement>>()
+                elements.forEach { (index, items) ->
+                    remapped[if (index > page) index + 1 else index] = items
+                }
+                elements[page]?.let { remapped[page + 1] = it }
+                remapped
+            }
         )
     }
 
