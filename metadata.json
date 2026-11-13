@@ -1,0 +1,6 @@
+{
+  "name": "Habib Advance Editor",
+  "description": "Professional offline-first PDF and document editor, viewer, and file management application.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
