@@ -154,6 +154,12 @@ class PdfBoxOverlayExportEngine(private val context: Context) {
     private fun drawShape(stream: PDPageContentStream, element: ShapeElement) {
         if (element.fillColor != null || element.shapeType == ShapeType.HIGHLIGHT_BOX) {
             setFillColor(stream, element.fillColor ?: element.strokeColor)
+            if (element.shapeType == ShapeType.HIGHLIGHT_BOX) {
+                val highlightState = PDExtendedGraphicsState().apply {
+                    nonStrokingAlphaConstant = element.opacity.coerceIn(0f, 1f) * 0.35f
+                }
+                stream.setGraphicsStateParameters(highlightState)
+            }
             if (element.shapeType == ShapeType.CIRCLE) {
                 val radius = minOf(element.width, element.height) / 2f
                 addCircle(stream, radius, radius, radius)
@@ -162,7 +168,7 @@ class PdfBoxOverlayExportEngine(private val context: Context) {
             }
             stream.fill()
         }
-        if (element.strokeWidthPt <= 0f) return
+        if (element.shapeType == ShapeType.HIGHLIGHT_BOX || element.strokeWidthPt <= 0f) return
         setStrokeColor(stream, element.strokeColor)
         stream.setLineWidth(element.strokeWidthPt)
         when (element.shapeType) {
