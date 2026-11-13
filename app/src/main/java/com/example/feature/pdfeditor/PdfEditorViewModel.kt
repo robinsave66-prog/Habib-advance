@@ -631,6 +631,39 @@ class PdfEditorViewModel(
         )
     }
 
+    fun duplicateCurrentPage() {
+        val page = _currentPage.value
+        applyPageOperation(
+            "Duplicating page…", "Page_Duplicate_${System.currentTimeMillis()}.pdf",
+            { uri, name -> pageEngine.duplicatePage(uri, page, name) },
+            page + 1,
+            { elements -> elements.map { (index, items) ->
+                (if (index > page) index + 1 else index) to items
+            }.toMutableMap().apply { elements[page]?.let { put(page + 1, it) } } }
+        )
+    }
+
+    fun moveCurrentPageBy(delta: Int) {
+        if (delta == 0) return
+        val page = _currentPage.value
+        val count = renderer.getPageCount()
+        val target = (page + delta).coerceIn(0, count - 1)
+        if (target == page) return
+        val order = (0 until count).toMutableList().apply {
+            val moved = removeAt(page)
+            add(target, moved)
+        }
+        val newIndexByOld = order.withIndex().associate { (newIndex, oldIndex) -> oldIndex to newIndex }
+        applyPageOperation(
+            "Reordering pages…", "Page_Reorder_${System.currentTimeMillis()}.pdf",
+            { uri, name -> pageEngine.reorderPages(uri, order, name) },
+            target,
+            { elements -> elements.mapNotNull { (oldIndex, items) ->
+                newIndexByOld[oldIndex]?.let { it to items }
+            }.toMap() }
+        )
+    }
+
     fun rotateCurrentPage() {
         val page = _currentPage.value
         applyPageOperation(
