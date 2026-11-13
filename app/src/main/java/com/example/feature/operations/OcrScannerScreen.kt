@@ -123,11 +123,17 @@ fun OcrScannerScreen(
             scanProgress = 0.3f
             scanStatusMessage = "Preparing offline OCR..."
             scope.launch {
-                val extracted = runOfflineImageOcr(context, uri, selectedLanguage)
-                recognizedText = if (extracted.isNotBlank()) extracted else "[Offline OCR: No text detected in this image]"
-                isScanning = false
-                scanProgress = 1f
-                scanStatusMessage = "Text extracted successfully!"
+                try {
+                    val extracted = runOfflineImageOcr(context, uri, selectedLanguage)
+                    recognizedText = if (extracted.isNotBlank()) extracted else "[Offline OCR: No text detected in this image]"
+                    scanStatusMessage = "Image scan complete."
+                } catch (error: Exception) {
+                    recognizedText = ""
+                    scanStatusMessage = "OCR failed: ${error.localizedMessage ?: "Please try another image."}"
+                } finally {
+                    isScanning = false
+                    scanProgress = 1f
+                }
             }
         }
     }
@@ -142,13 +148,20 @@ fun OcrScannerScreen(
             scanProgress = 0.1f
             scanStatusMessage = "Reading PDF pages..."
             scope.launch {
-                val extracted = runOfflinePdfOcr(context, uri, selectedLanguage) { current, total ->
-                    scanProgress = current.toFloat() / total.toFloat()
-                    scanStatusMessage = "Scanning page $current of $total..."
+                try {
+                    val extracted = runOfflinePdfOcr(context, uri, selectedLanguage) { current, total ->
+                        scanProgress = current.toFloat() / total.toFloat()
+                        scanStatusMessage = "Scanning page $current of $total..."
+                    }
+                    recognizedText = if (extracted.isNotBlank()) extracted else "[Offline OCR: No text detected in PDF]"
+                    scanStatusMessage = "Multi-page scan complete."
+                } catch (error: Exception) {
+                    recognizedText = ""
+                    scanStatusMessage = "OCR failed: ${error.localizedMessage ?: "Please try another PDF."}"
+                } finally {
+                    isScanning = false
+                    scanProgress = 1f
                 }
-                recognizedText = if (extracted.isNotBlank()) extracted else "[Offline OCR: No text detected in PDF]"
-                isScanning = false
-                scanStatusMessage = "Multi-page scan complete!"
             }
         }
     }
@@ -514,8 +527,8 @@ private suspend fun runOfflinePdfOcr(
             pfd.close()
             nativeDocument?.close()
         }
-    } catch (_: Exception) {
-        // Return only text actually extracted; caller displays a no-text/error state.
+    } catch (error: Exception) {
+        throw error
     } finally {
         tempFile.delete()
     }
