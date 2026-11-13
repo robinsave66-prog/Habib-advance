@@ -249,8 +249,6 @@ class OfficeOpenXmlEditingEngine(private val context: Context) {
             setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
             setFeature("http://xml.org/sax/features/external-general-entities", false)
             setFeature("http://xml.org/sax/features/external-parameter-entities", false)
-            setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "")
-            setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "")
         }
         return factory.newDocumentBuilder().parse(bytes.inputStream())
     }
@@ -258,7 +256,6 @@ class OfficeOpenXmlEditingEngine(private val context: Context) {
     private fun serialize(xml: Document): ByteArray {
         val factory = TransformerFactory.newInstance().apply {
             setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "")
-            setAttribute(XMLConstants.ACCESS_EXTERNAL_STYLESHEET, "")
         }
         val transformer = factory.newTransformer().apply {
             setOutputProperty(OutputKeys.ENCODING, "UTF-8")
