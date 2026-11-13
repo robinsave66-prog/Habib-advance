@@ -48,8 +48,7 @@ class PdfBoxOverlayExportEngineTest {
     }
 
     @Test
-    fun exportMapsOverlayCoordinatesForClockwiseRotatedPage() {
-        runBlocking {
+    fun exportMapsOverlayCoordinatesForClockwiseRotatedPage() = runBlocking {
         val rotatedSource = File(context.cacheDir, "vector-export-rotated-source.pdf")
         PDDocument().use { document ->
             val page = PDPage(PDRectangle(420f, 600f))
@@ -83,12 +82,10 @@ class PdfBoxOverlayExportEngineTest {
         assertTrue(rotatedSource.exists())
         assertTrue(output.length() > 0L)
         rotatedSource.delete()
-        }
     }
 
     @Test
-    fun exportAppendsTextAndPreservesOriginalSearchablePageContent() {
-        runBlocking {
+    fun exportAppendsTextAndPreservesOriginalSearchablePageContent() = runBlocking {
         val overlay = TextElement(
             pageIndex = 0,
             x = 40f,
@@ -113,6 +110,45 @@ class PdfBoxOverlayExportEngineTest {
         }
         assertTrue(output.length() > 0L)
         assertTrue(source.exists())
+    }
+
+    @Test
+    fun pageOperationThenOverlayExportPreservesPageCountAndSearchableContent() = runBlocking {
+        val pageEngine = PdfBoxDocumentEngine(context)
+        val duplicated = pageEngine.duplicatePage(
+            sourceUri = Uri.fromFile(source),
+            pageIndex = 0,
+            outputFileName = "duplicate-before-export-test.pdf"
+        )
+        val overlay = TextElement(
+            pageIndex = 1,
+            x = 55f,
+            y = 95f,
+            width = 220f,
+            height = 28f,
+            text = "Overlay after page operation",
+            fontSizePt = 13f
+        )
+
+        val output = engine.export(
+            sourceUri = Uri.fromFile(duplicated),
+            elementsByPage = mapOf(1 to listOf(overlay)),
+            outputFileName = "page-operation-overlay-export-test.pdf"
+        )
+
+        PDDocument.load(output).use { result ->
+            assertEquals(2, result.numberOfPages)
+            assertEquals(420f, result.getPage(0).mediaBox.width, 0.01f)
+            assertEquals(420f, result.getPage(1).mediaBox.width, 0.01f)
+            val extracted = PDFTextStripper().getText(result)
+            assertEquals(2, Regex("Original searchable text").findAll(extracted).count())
+            assertTrue(extracted.contains("Overlay after page operation"))
         }
+        PDDocument.load(source).use { original ->
+            assertEquals(1, original.numberOfPages)
+            assertTrue(PDFTextStripper().getText(original).contains("Original searchable text"))
+        }
+        assertTrue(duplicated.exists())
+        assertTrue(output.length() > 0L)
     }
 }
