@@ -295,6 +295,8 @@ class HabibAdvanceEditorRobolectricTest {
     @Test
     fun testCompressPdfEngineExecution() = runBlocking {
         val sample = SamplePdfGenerator.createSamplePdfIfMissing(context)
+        File(context.filesDir, "documents/Test_Compressed_Doc.pdf").delete()
+        com.tom_roush.pdfbox.android.PDFBoxResourceLoader.init(context)
         val compressed = com.example.engine.core.AdvancedPdfOperationsEngine.compressPdf(
             context = context,
             sourceUri = Uri.fromFile(sample),
@@ -304,6 +306,13 @@ class HabibAdvanceEditorRobolectricTest {
 
         assertNotNull(compressed)
         assertTrue(compressed.exists())
+        com.tom_roush.pdfbox.pdmodel.PDDocument.load(sample).use { original ->
+            com.tom_roush.pdfbox.pdmodel.PDDocument.load(compressed).use { optimized ->
+                assertEquals(original.numberOfPages, optimized.numberOfPages)
+                val extracted = com.tom_roush.pdfbox.text.PDFTextStripper().getText(optimized)
+                assertTrue("Lossless optimization must preserve searchable PDF text.", extracted.contains("HABIB ADVANCE EDITOR"))
+            }
+        }
     }
 
     @Test
