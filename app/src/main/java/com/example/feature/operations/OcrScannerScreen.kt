@@ -414,8 +414,18 @@ private suspend fun runOfflineImageOcr(
     uri: Uri,
     language: OcrLanguage
 ): String = withContext(Dispatchers.IO) {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    context.contentResolver.openInputStream(uri)?.use { input ->
+        BitmapFactory.decodeStream(input, null, bounds)
+    }
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@withContext ""
+    var sampleSize = 1
+    while (maxOf(bounds.outWidth / sampleSize, bounds.outHeight / sampleSize) > 3000) {
+        sampleSize *= 2
+    }
+    val decodeOptions = BitmapFactory.Options().apply { inSampleSize = sampleSize }
     val bitmap = context.contentResolver.openInputStream(uri)?.use { input ->
-        BitmapFactory.decodeStream(input)
+        BitmapFactory.decodeStream(input, null, decodeOptions)
     } ?: return@withContext ""
     try {
         OfflineTesseractOcrEngine.openSession(context, language).use { session ->
