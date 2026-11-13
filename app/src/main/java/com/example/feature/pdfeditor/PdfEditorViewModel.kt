@@ -673,10 +673,24 @@ class PdfEditorViewModel(
 
     fun rotateCurrentPage() {
         val page = _currentPage.value
+        val (_, oldPageHeight) = _pageDimensions.value
         applyPageOperation(
             "Rotating page…", "Page_Rotate_${System.currentTimeMillis()}.pdf",
             { uri, name -> pageEngine.rotatePages(uri, setOf(page), 90, name) },
-            page
+            page,
+            { elements ->
+                elements.mapValues { (index, items) ->
+                    if (index != page) items else items.map { element ->
+                        element
+                            .copyWithPosition(
+                                oldPageHeight - element.y - element.height,
+                                element.x
+                            )
+                            .copyWithSize(element.height, element.width)
+                            .copyWithRotation(element.rotationDegrees + 90f)
+                    }
+                }
+            }
         )
     }
 
