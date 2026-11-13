@@ -24,6 +24,7 @@ class OfficeOpenXmlEditingEngineTest {
     @Test fun docxEditsNativeTextAndPreservesFormattingAndMedia() {
         val file = zip("office-test.docx", mapOf(
             "word/document.xml" to """<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:rPr><w:b/></w:rPr><w:t>Hello Habib</w:t></w:r></w:p></w:body></w:document>""",
+            "word/header1.xml" to """<w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:r><w:t>Header text stays</w:t></w:r></w:p></w:hdr>""",
             "word/media/image1.png" to "image-bytes"
         ))
         val out = runBlocking { engine.replaceDocxText(Uri.fromFile(file), "Habib", "Editor", "edited-test.docx") }
