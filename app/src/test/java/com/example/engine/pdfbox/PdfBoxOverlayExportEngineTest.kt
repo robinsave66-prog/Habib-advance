@@ -10,6 +10,7 @@ import com.tom_roush.pdfbox.pdmodel.PDPage
 import com.tom_roush.pdfbox.pdmodel.PDPageContentStream
 import com.tom_roush.pdfbox.pdmodel.common.PDRectangle
 import com.tom_roush.pdfbox.pdmodel.font.PDType1Font
+import com.tom_roush.pdfbox.pdmodel.graphics.image.PDImageXObject
 import com.tom_roush.pdfbox.text.PDFTextStripper
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -111,6 +112,38 @@ class PdfBoxOverlayExportEngineTest {
         }
         assertTrue(output.length() > 0L)
         assertTrue(source.exists())
+    }
+
+
+
+    @Test
+    fun exportsBengaliOverlayAsShapedImageAndKeepsOriginalPdfText() = runBlocking {
+        val overlay = TextElement(
+            pageIndex = 0,
+            x = 36f,
+            y = 90f,
+            width = 260f,
+            height = 48f,
+            text = "বাংলা লেখা পরীক্ষা",
+            fontSizePt = 18f,
+            isBold = true,
+            textColor = 0xFF123456
+        )
+        val output = engine.export(
+            Uri.fromFile(source),
+            mapOf(0 to listOf(overlay)),
+            "bengali-overlay-test.pdf"
+        )
+        PDDocument.load(output).use { result ->
+            assertTrue(PDFTextStripper().getText(result).contains("Original searchable text"))
+            val resources = result.getPage(0).resources
+            val imageNames = resources.xObjectNames.filter { name ->
+                resources.getXObject(name) is PDImageXObject
+            }
+            assertTrue("Bengali overlay should be embedded as a rendered image", imageNames.isNotEmpty())
+        }
+        assertTrue(source.exists())
+        assertTrue(output.length() > 0L)
     }
 
     @Test
