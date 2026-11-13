@@ -1358,7 +1358,7 @@ fun PdfEditorScreen(
             text = {
                 Column {
                     Text(
-                        text = "A new PDF copy will be created and the original file will remain untouched. Existing PDF page content is preserved as PDF content (not flattened to page images). Added objects are appended as overlays; this does not directly replace existing PDF text objects. Built-in text export currently supports standard Latin characters; Bengali and Arabic need an embedded font.",
+                        text = "A new PDF copy will be created and the original file will remain untouched. Existing PDF page content is preserved as PDF content (not flattened to page images). Added objects are appended as overlays; this does not directly replace existing PDF text objects. Built-in Helvetica export is limited to WinAnsi-encodable text; Bengali, Arabic, and other unsupported Unicode characters require an embedded Unicode font.",
                         style = MaterialTheme.typography.bodyMedium
                     )
                     Spacer(modifier = Modifier.height(12.dp))
@@ -1395,7 +1395,7 @@ fun PdfEditorScreen(
             title = "PDF Exported Successfully!",
             file = success.exportedFile,
             additionalDetails = listOf(
-                "Pages" to "${viewModel.elements.value.size.coerceAtLeast(1)} modified pages",
+                "Pages" to "${viewModel.elements.value.values.count { it.isNotEmpty() }} modified pages",
                 "Export" to "Original PDF content preserved with vector overlays"
             ),
             onDismiss = { viewModel.resetExportStatus() },
