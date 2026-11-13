@@ -102,6 +102,48 @@ class PdfBoxDocumentEngineTest {
     }
 
     @Test
+    fun passwordProtectionAndUnlockPreservePdfPages() = runBlocking {
+        val protected = engine.protectPdf(
+            sourceUri = Uri.fromFile(source),
+            userPassword = "user-pass-123",
+            ownerPassword = "owner-pass-456",
+            outputFileName = "protected-pdf-test.pdf"
+        )
+        PDDocument.load(protected, "user-pass-123").use { document ->
+            assertEquals(3, document.numberOfPages)
+        }
+
+        val unlocked = engine.removePassword(
+            sourceUri = Uri.fromFile(protected),
+            password = "user-pass-123",
+            outputFileName = "unlocked-pdf-test.pdf"
+        )
+        PDDocument.load(unlocked).use { document ->
+            assertEquals(3, document.numberOfPages)
+            assertEquals(300f, document.getPage(0).mediaBox.width, 0.01f)
+        }
+    }
+
+    @Test
+    fun passwordProtectionRejectsWeakOrIdenticalPasswords() = runBlocking {
+        var weakRejected = false
+        try {
+            engine.protectPdf(Uri.fromFile(source), "123", "owner-password", "weak-password-test.pdf")
+        } catch (_: IllegalArgumentException) {
+            weakRejected = true
+        }
+        assertTrue(weakRejected)
+
+        var identicalRejected = false
+        try {
+            engine.protectPdf(Uri.fromFile(source), "same-password", "same-password", "same-password-test.pdf")
+        } catch (_: IllegalArgumentException) {
+            identicalRejected = true
+        }
+        assertTrue(identicalRejected)
+    }
+
+    @Test
     fun mergePdfsCombinesPagesFromBothSources() = runBlocking {
         val second = File(context.cacheDir, "second-merge-source.pdf")
         PDDocument().use { document ->
