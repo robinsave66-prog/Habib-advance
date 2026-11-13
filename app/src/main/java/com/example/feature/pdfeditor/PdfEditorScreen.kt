@@ -973,7 +973,6 @@ fun PdfEditorScreen(
                 TextButton(
                     onClick = {
                         showRedactionConfirm = false
-                        pendingCutText = null
                     }
                 ) { Text("Cancel") }
             }
