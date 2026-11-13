@@ -82,6 +82,7 @@ class PdfBoxOverlayExportEngineTest {
         assertTrue(rotatedSource.exists())
         assertTrue(output.length() > 0L)
         rotatedSource.delete()
+        Unit
     }
 
     @Test
