@@ -188,4 +188,58 @@ class PdfBoxDocumentEngineTest {
         }
     }
 
+
+    @Test
+    fun passwordProtectionEnforcesUserPermissionsAndAllowsOwnerAccess() = runBlocking {
+        val protected = engine.protectPdf(
+            sourceUri = Uri.fromFile(source),
+            userPassword = "restricted-user-123",
+            ownerPassword = "document-owner-456",
+            outputFileName = "permission-protected-test.pdf"
+        )
+
+        PDDocument.load(protected, "restricted-user-123").use { userDocument ->
+            val permission = userDocument.currentAccessPermission
+            assertTrue("Printing should remain allowed", permission.canPrint())
+            assertTrue("Content modification should be disabled", !permission.canModify())
+            assertTrue("Text extraction should be disabled", !permission.canExtractContent())
+            assertTrue("Annotation changes should be disabled", !permission.canModifyAnnotations())
+            assertTrue("Form filling should be disabled", !permission.canFillInForm())
+            assertTrue("Page assembly should be disabled", !permission.canAssembleDocument())
+        }
+
+        PDDocument.load(protected, "document-owner-456").use { ownerDocument ->
+            assertTrue("Owner password should grant owner permissions",
+                ownerDocument.currentAccessPermission.isOwnerPermission)
+            assertTrue(ownerDocument.currentAccessPermission.canModify())
+        }
+    }
+
+    @Test
+    fun passwordUnlockRejectsAnIncorrectPasswordAndKeepsSourceIntact() = runBlocking {
+        val protected = engine.protectPdf(
+            sourceUri = Uri.fromFile(source),
+            userPassword = "correct-user-123",
+            ownerPassword = "correct-owner-456",
+            outputFileName = "wrong-password-source.pdf"
+        )
+
+        var rejected = false
+        try {
+            engine.removePassword(
+                sourceUri = Uri.fromFile(protected),
+                password = "incorrect-password",
+                outputFileName = "must-not-be-created.pdf"
+            )
+        } catch (_: Exception) {
+            rejected = true
+        }
+
+        assertTrue("Incorrect password must be rejected", rejected)
+        assertTrue("Protected source must remain available", protected.exists())
+        PDDocument.load(protected, "correct-user-123").use { document ->
+            assertEquals(3, document.numberOfPages)
+        }
+    }
+
 }
