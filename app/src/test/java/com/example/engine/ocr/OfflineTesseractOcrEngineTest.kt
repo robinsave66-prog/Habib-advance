@@ -18,7 +18,7 @@ class OfflineTesseractOcrEngineTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val expected = mapOf(
             "ben.traineddata" to ("c300ca8fbf0543f2fdd3256dbd5a203f404b513d" to 855841L),
-            "eng.traineddata" to ("bbef4675053b5b468cdb477053e28b1c698ba08e" to 4113088L)
+            "eng.traineddata" to ("31abd495e0f719db4f524c447e9d855124a0b0d6" to 4113088L)
         )
 
         expected.forEach { (fileName, metadata) ->
