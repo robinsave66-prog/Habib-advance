@@ -149,6 +149,7 @@ fun PdfEditorScreen(
     val selectedWords by viewModel.selectedWords.collectAsStateWithLifecycle()
 
     var showSaveDialog by remember { mutableStateOf(false) }
+    var showPageOperationsDialog by remember { mutableStateOf(false) }
     var saveFileNameInput by remember { mutableStateOf("Edited_${documentName ?: "Document.pdf"}") }
 
     // Text Insertion / Edit Dialog State
@@ -200,6 +201,16 @@ fun PdfEditorScreen(
                 imageUri = uri.toString()
             )
             viewModel.addElement(imgElem)
+        }
+    }
+
+    val mergePdfLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenMultipleDocuments()
+    ) { selectedUris ->
+        if (selectedUris.size >= 2) {
+            viewModel.mergePdfDocuments(selectedUris)
+        } else if (selectedUris.isNotEmpty()) {
+            Toast.makeText(context, "Select at least two PDF files.", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -270,6 +281,13 @@ fun PdfEditorScreen(
                         modifier = Modifier.testTag("editor_paste_button")
                     ) {
                         Icon(Icons.Default.ContentPaste, contentDescription = "Paste")
+                    }
+
+                    TextButton(
+                        onClick = { showPageOperationsDialog = true },
+                        modifier = Modifier.testTag("editor_page_operations_button")
+                    ) {
+                        Text("Pages")
                     }
 
                     // Save / Export
@@ -510,6 +528,17 @@ fun PdfEditorScreen(
                 .background(Color(0xFFE2E8F0))
         ) {
             when (val s = status) {
+                is EditorUiStatus.Exporting -> {
+                    Column(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.Center,
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(s.progress, style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
                 is EditorUiStatus.Loading -> {
                     Column(
                         modifier = Modifier.fillMaxSize(),
@@ -1258,6 +1287,49 @@ fun PdfEditorScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showSignatureDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    // PDFBox-backed page operations. Each action creates a new PDF copy.
+    if (showPageOperationsDialog) {
+        AlertDialog(
+            onDismissRequest = { showPageOperationsDialog = false },
+            title = { Text("PDF Page Operations", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "These actions create a new PDF copy and then continue editing that copy. Existing overlay edits are cleared after a page-structure change.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    OutlinedButton(
+                        onClick = { showPageOperationsDialog = false; viewModel.rotateCurrentPage() },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("Rotate Current Page 90°") }
+                    OutlinedButton(
+                        onClick = { showPageOperationsDialog = false; viewModel.insertBlankPageAfterCurrent() },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("Insert Blank Page After Current") }
+                    OutlinedButton(
+                        onClick = { showPageOperationsDialog = false; viewModel.deleteCurrentPage() },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("Delete Current Page") }
+                    OutlinedButton(
+                        onClick = { showPageOperationsDialog = false; viewModel.extractCurrentPage() },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("Extract Current Page") }
+                    OutlinedButton(
+                        onClick = {
+                            showPageOperationsDialog = false
+                            mergePdfLauncher.launch(arrayOf("application/pdf"))
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("Merge With Other PDFs") }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showPageOperationsDialog = false }) { Text("Close") }
             }
         )
     }
