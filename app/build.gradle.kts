@@ -16,8 +16,8 @@ android {
     applicationId = "com.habib.advanceeditor"
     minSdk = 26
     targetSdk = 36
-    versionCode = 3
-    versionName = "1.2"
+    versionCode = 4
+    versionName = "1.3"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -125,6 +125,8 @@ dependencies {
   implementation(libs.moshi.kotlin)
   implementation(libs.okhttp)
   implementation(libs.mlkit.text.recognition)
+  // Apache-2.0 PDF object and page manipulation engine.
+  implementation("com.tom-roush:pdfbox-android:2.0.27.0")
   // implementation(libs.play.services.location)
   implementation(libs.retrofit)
   testImplementation(libs.androidx.compose.ui.test.junit4)
