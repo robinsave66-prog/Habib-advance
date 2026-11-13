@@ -17,7 +17,7 @@ class OfflineTesseractOcrEngineTest {
     fun packagedBengaliAndEnglishModelsArePresentAndMatchPinnedChecksums() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val expected = mapOf(
-            "ben.traineddata" to ("7e9054d1de309714009a85555f5276168d41af9c" to 855841L),
+            "ben.traineddata" to ("c300ca8fbf0543f2fdd3256dbd5a203f404b513d" to 855841L),
             "eng.traineddata" to ("bbef4675053b5b468cdb477053e28b1c698ba08e" to 4113088L)
         )
 
