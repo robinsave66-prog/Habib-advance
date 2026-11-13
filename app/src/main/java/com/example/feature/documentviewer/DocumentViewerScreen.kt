@@ -214,9 +214,10 @@ fun DocumentViewerScreen(
         contract = ActivityResultContracts.CreateDocument(FileSharingManager.getMimeTypeForFile(resolvedName))
     ) { destinationUri: Uri? ->
         if (destinationUri != null) {
+            val editedFile = pendingOfficeOutput
+            pendingOfficeOutput = null
             scope.launch(Dispatchers.IO) {
                 try {
-                    val editedFile = pendingOfficeOutput
                     context.contentResolver.openOutputStream(destinationUri)?.use { outStream ->
                         if (editedFile != null) {
                             editedFile.inputStream().use { it.copyTo(outStream) }
@@ -225,7 +226,6 @@ fun DocumentViewerScreen(
                         }
                         outStream.flush()
                     }
-                    pendingOfficeOutput = null
                     withContext(Dispatchers.Main) {
                         Toast.makeText(context, "Saved to device storage successfully!", Toast.LENGTH_SHORT).show()
                     }
