@@ -1545,7 +1545,7 @@ private fun EditorElementView(
                             )
                         }
                         ShapeType.HIGHLIGHT_BOX -> {
-                            drawRect(shapeColor.copy(alpha = 0.35f))
+                            drawRect(shapeColor.copy(alpha = 0.35f * element.opacity.coerceIn(0f, 1f)))
                         }
                     }
                 }
