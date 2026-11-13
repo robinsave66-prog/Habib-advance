@@ -59,7 +59,7 @@ class OfficeOpenXmlEditingEngineTest {
 
     @Test fun pptxEditsSlideTextRun() {
         val file = zip("office-test.pptx", mapOf(
-            "ppt/slides/slide1.xml" to """<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:rPr b="1"/><a:t>Quarterly Report</a:t></a:r></a:p></p:txBody></p:spTree></p:cSld></p:sld>"""
+            "ppt/slides/slide1.xml" to """<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:rPr b="1"/><a:t>Quarterly Report</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>"""
         ))
         val out = runBlocking { engine.replacePptxText(Uri.fromFile(file), "Quarterly", "Annual", "edited-test.pptx") }
         ZipFile(out).use { z ->
