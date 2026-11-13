@@ -10,6 +10,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.core.content.FileProvider
 import com.example.engine.pdfbox.PdfBoxDocumentEngine
+import com.example.engine.pdfbox.PdfBoxOverlayExportEngine
 import com.example.engine.core.IPdfRenderer
 import com.example.engine.core.PdfDocumentInfo
 import com.example.engine.core.PdfLoadResult
@@ -64,6 +65,7 @@ class PdfEditorViewModel(
 
     private val renderer: IPdfRenderer = AndroidNativePdfRenderer(context)
     private val pageEngine = PdfBoxDocumentEngine(context)
+    private val overlayExportEngine = PdfBoxOverlayExportEngine(context)
 
     private val _status = MutableStateFlow<EditorUiStatus>(EditorUiStatus.Idle)
     val status: StateFlow<EditorUiStatus> = _status.asStateFlow()
@@ -709,10 +711,8 @@ class PdfEditorViewModel(
 
         viewModelScope.launch {
             try {
-                val exportedFile = PdfExportEngine.exportPdfWithEdits(
-                    context = context,
+                val exportedFile = overlayExportEngine.export(
                     sourceUri = uri,
-                    pageCount = total,
                     elementsByPage = _elements.value,
                     outputFileName = outputName
                 )
