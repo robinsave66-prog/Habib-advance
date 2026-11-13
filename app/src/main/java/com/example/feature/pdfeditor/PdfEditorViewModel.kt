@@ -565,7 +565,8 @@ class PdfEditorViewModel(
         progress: String,
         outputName: String,
         operation: suspend (Uri, String) -> File,
-        pageAfter: Int = _currentPage.value
+        pageAfter: Int = _currentPage.value,
+        remapElements: (Map<Int, List<EditorElement>>) -> Map<Int, List<EditorElement>> = { it }
     ) {
         val source = sourceDocUri ?: return
         _status.value = EditorUiStatus.Exporting(progress)
@@ -580,7 +581,9 @@ class PdfEditorViewModel(
                 when (val loaded = renderer.openDocument(outputUri)) {
                     is PdfLoadResult.Success -> {
                         sourceDocUri = outputUri
-                        _elements.value = emptyMap()
+                        // Keep editor overlays and remap their page indexes when page structure changes.
+                        _elements.value = remapElements(_elements.value)
+                            .filterKeys { it in 0 until loaded.documentInfo.pageCount }
                         _detectedWords.value = emptyMap()
                         _selectedWords.value = emptyList()
                         _selectedElementId.value = null
@@ -605,7 +608,14 @@ class PdfEditorViewModel(
         applyPageOperation(
             "Deleting page…", "Page_Delete_${System.currentTimeMillis()}.pdf",
             { uri, name -> pageEngine.deletePages(uri, setOf(page), name) },
-            (page - 1).coerceAtLeast(0)
+            (page - 1).coerceAtLeast(0),
+            { elements -> elements.mapNotNull { (index, items) ->
+                when {
+                    index == page -> null
+                    index > page -> (index - 1) to items
+                    else -> index to items
+                }
+            }.toMap() }
         )
     }
 
@@ -614,7 +624,10 @@ class PdfEditorViewModel(
         applyPageOperation(
             "Inserting blank page…", "Page_Insert_${System.currentTimeMillis()}.pdf",
             { uri, name -> pageEngine.insertBlankPage(uri, page + 1, name) },
-            page + 1
+            page + 1,
+            { elements -> elements.map { (index, items) ->
+                (if (index >= page + 1) index + 1 else index) to items
+            }.toMap() }
         )
     }
 
@@ -632,7 +645,8 @@ class PdfEditorViewModel(
         applyPageOperation(
             "Extracting current page…", "Page_Extract_${System.currentTimeMillis()}.pdf",
             { uri, name -> pageEngine.extractPages(uri, listOf(page), name) },
-            0
+            0,
+            { elements -> elements[page]?.let { mapOf(0 to it) }.orEmpty() }
         )
     }
 
