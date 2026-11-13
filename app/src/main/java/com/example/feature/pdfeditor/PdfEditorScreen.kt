@@ -150,6 +150,8 @@ fun PdfEditorScreen(
 
     var showSaveDialog by remember { mutableStateOf(false) }
     var showPageOperationsDialog by remember { mutableStateOf(false) }
+    var showRedactionConfirm by remember { mutableStateOf(false) }
+    var pendingCutText by remember { mutableStateOf<String?>(null) }
     var pageSelectionInput by remember { mutableStateOf("1") }
     var saveFileNameInput by remember { mutableStateOf("Edited_${documentName ?: "Document.pdf"}") }
 
@@ -900,8 +902,11 @@ fun PdfEditorScreen(
                                         Toast.makeText(context, "Copied: \"$text\"", Toast.LENGTH_SHORT).show()
                                     },
                                     onCut = {
-                                        val text = viewModel.cutSelectedWords(context)
-                                        Toast.makeText(context, "Copied and visually covered. Original PDF text remains underneath.", Toast.LENGTH_LONG).show()
+                                        val text = viewModel.copySelectedWords(context)
+                                        if (text.isNotBlank()) {
+                                            pendingCutText = text
+                                            showRedactionConfirm = true
+                                        }
                                     },
                                     onPaste = {
                                         val first = selectedWords.first()
@@ -921,8 +926,8 @@ fun PdfEditorScreen(
                                         showTextDialog = true
                                     },
                                     onDelete = {
-                                        viewModel.deleteSelectedWords()
-                                        Toast.makeText(context, "Text covered visually only. Original PDF text remains in the file.", Toast.LENGTH_LONG).show()
+                                        pendingCutText = null
+                                        showRedactionConfirm = true
                                     },
                                     onSelectAll = { viewModel.selectAllWordsOnCurrentPage() },
                                     onChangeColor = {
@@ -945,6 +950,39 @@ fun PdfEditorScreen(
                 else -> {}
             }
         }
+    }
+
+    if (showRedactionConfirm) {
+        AlertDialog(
+            onDismissRequest = {
+                showRedactionConfirm = false
+                pendingCutText = null
+            },
+            title = { Text("Permanently redact selected text?") },
+            text = {
+                Text(
+                    "This rebuilds every page as a 300-DPI image and applies an opaque black redaction. The entire document will lose searchable/selectable text and vector content will be flattened. This cannot be undone. Keep a backup of the original PDF."
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showRedactionConfirm = false
+                        pendingCutText = null
+                        viewModel.deleteSelectedWords()
+                        Toast.makeText(context, "Applying permanent redaction. Please wait…", Toast.LENGTH_LONG).show()
+                    }
+                ) { Text("Redact Permanently") }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showRedactionConfirm = false
+                        pendingCutText = null
+                    }
+                ) { Text("Cancel") }
+            }
+        )
     }
 
     // Insert or Edit Text Dialog (With Independent Text & Background Colors)

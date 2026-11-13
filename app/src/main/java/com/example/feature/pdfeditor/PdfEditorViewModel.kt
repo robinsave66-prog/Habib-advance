@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.RectF
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -67,6 +68,7 @@ class PdfEditorViewModel(
     private val renderer: IPdfRenderer = AndroidNativePdfRenderer(context)
     private val pageEngine = PdfBoxDocumentEngine(context)
     private val overlayExportEngine = PdfBoxOverlayExportEngine(context)
+    private val secureRedactionEngine = PdfSecureRedactionEngine(context)
     private val nativeTextEditEngine = PdfNativeTextEditEngine(context)
 
     private val _status = MutableStateFlow<EditorUiStatus>(EditorUiStatus.Idle)
@@ -273,32 +275,76 @@ class PdfEditorViewModel(
         return copied
     }
 
+    /**
+     * Permanently removes selected content by rasterizing every PDF page at 300 DPI,
+     * applying opaque redaction blocks, and rebuilding an image-only PDF.
+     */
     fun deleteSelectedWords() {
         val words = _selectedWords.value
         if (words.isEmpty()) return
-
+        val source = sourceDocUri ?: run {
+            _status.value = EditorUiStatus.Error("Open a PDF before applying redaction.")
+            return
+        }
         val page = _currentPage.value
-        pushUndo()
-
-        // Create clean opaque redaction cover matching page background (white)
-        val minX = words.minOf { it.bounds.left } - 2f
-        val minY = words.minOf { it.bounds.top } - 1f
-        val maxX = words.maxOf { it.bounds.right } + 2f
-        val maxY = words.maxOf { it.bounds.bottom } + 1f
-
-        val redactionShape = ShapeElement(
-            pageIndex = page,
-            x = minX,
-            y = minY,
-            width = (maxX - minX).coerceAtLeast(10f),
-            height = (maxY - minY).coerceAtLeast(10f),
-            shapeType = ShapeType.RECTANGLE,
-            strokeColor = 0xFFFFFFFF,
-            fillColor = 0xFFFFFFFF,
-            strokeWidthPt = 0f
+        val bounds = RectF(
+            words.minOf { it.bounds.left },
+            words.minOf { it.bounds.top },
+            words.maxOf { it.bounds.right },
+            words.maxOf { it.bounds.bottom }
         )
-        addElement(redactionShape)
-        _selectedWords.value = emptyList()
+        if (bounds.width() <= 0f || bounds.height() <= 0f) {
+            _status.value = EditorUiStatus.Error("The selected text has invalid page coordinates.")
+            return
+        }
+        _status.value = EditorUiStatus.Exporting("Applying permanent redaction and flattening PDF pages…")
+        viewModelScope.launch {
+            var stagedOverlayPdf: File? = null
+            try {
+                val redactionSource = if (_elements.value.isNotEmpty()) {
+                    stagedOverlayPdf = overlayExportEngine.export(
+                        sourceUri = source,
+                        elementsByPage = _elements.value,
+                        outputFileName = "Pre_Redaction_${System.currentTimeMillis()}.pdf"
+                    )
+                    Uri.fromFile(stagedOverlayPdf)
+                } else source
+
+                val redactedFile = secureRedactionEngine.redact(
+                    sourceUri = redactionSource,
+                    redactionsByPage = mapOf(page to listOf(bounds)),
+                    outputFileName = "Secure_Redaction_${System.currentTimeMillis()}.pdf"
+                )
+                val redactedUri = FileProvider.getUriForFile(
+                    context,
+                    "${context.packageName}.fileprovider",
+                    redactedFile
+                )
+                when (val loaded = renderer.openDocument(redactedUri)) {
+                    is PdfLoadResult.Success -> {
+                        sourceDocUri = redactedUri
+                        _elements.value = emptyMap()
+                        _detectedWords.value = emptyMap()
+                        _selectedWords.value = emptyList()
+                        _selectedElementId.value = null
+                        undoStack.clear()
+                        redoStack.clear()
+                        _currentPage.value = page.coerceIn(0, loaded.documentInfo.pageCount - 1)
+                        _pageDimensions.value = renderer.getPageDimensions(_currentPage.value) ?: Pair(595, 842)
+                        _status.value = EditorUiStatus.Loaded(loaded.documentInfo)
+                    }
+                    is PdfLoadResult.PasswordRequired -> _status.value = EditorUiStatus.Error(loaded.message)
+                    is PdfLoadResult.Corrupted -> _status.value = EditorUiStatus.Error(loaded.message)
+                    is PdfLoadResult.Error -> _status.value = EditorUiStatus.Error(
+                        loaded.throwable.localizedMessage ?: "Could not reopen the redacted PDF."
+                    )
+                }
+            } catch (error: Exception) {
+                _status.value = EditorUiStatus.Error(error.localizedMessage ?: "Permanent PDF redaction failed.")
+            } finally {
+                stagedOverlayPdf?.delete()
+            }
+        }
     }
 
     fun replaceSelectedWords(
