@@ -165,10 +165,21 @@ val downloadOcrLanguageModels = tasks.register("downloadOcrLanguageModels") {
   outputs.files(ocrModelSpecs.map { modelDirectory.file("${it.first}.traineddata") })
   doLast {
     val directory = modelDirectory.asFile.apply { mkdirs() }
-    ocrModelSpecs.forEach { (language, _, expectedSize) ->
+    ocrModelSpecs.forEach { (language, expectedSha1, expectedSize) ->
       val target = File(directory, "$language.traineddata")
-      if (!target.exists() || target.length() != expectedSize) {
+      fun sha1Of(file: File): String =
+        MessageDigest.getInstance("SHA-1")
+          .digest(file.readBytes())
+          .joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
+
+      // Never trust a cached model based on file size alone: same-size corruption
+      // must trigger a fresh download before the assets are packaged.
+      val existingIsValid = target.isFile &&
+        target.length() == expectedSize &&
+        sha1Of(target) == expectedSha1
+      if (!existingIsValid) {
         val temporary = File(directory, "$language.traineddata.download")
+        temporary.delete()
         val modelUrl = "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/87416418657359cb625c412a48b6e1d6d41c29bd/$language.traineddata"
         URL(modelUrl).openConnection().apply {
           connectTimeout = 20000
@@ -181,13 +192,10 @@ val downloadOcrLanguageModels = tasks.register("downloadOcrLanguageModels") {
           temporary.delete()
           "Downloaded $language OCR model has an unexpected size: $downloadedSize"
         }
-        val sha1 = MessageDigest.getInstance("SHA-1")
-          .digest(temporary.readBytes())
-          .joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
-        val expectedSha1 = ocrModelSpecs.first { it.first == language }.second
-        check(sha1 == expectedSha1) {
+        val downloadedSha1 = sha1Of(temporary)
+        check(downloadedSha1 == expectedSha1) {
           temporary.delete()
-          "Downloaded $language OCR model failed SHA-1 integrity verification."
+          "Downloaded $language OCR model failed SHA-1 integrity verification: $downloadedSha1"
         }
         check(temporary.renameTo(target)) { "Unable to install $language OCR model." }
       }
