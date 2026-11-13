@@ -61,6 +61,19 @@ class PdfBoxDocumentEngine(private val context: Context) {
         }
     }
 
+    suspend fun duplicatePage(
+        sourceUri: Uri,
+        pageIndex: Int,
+        outputFileName: String
+    ): File = withContext(Dispatchers.IO) {
+        editSource(sourceUri, outputFileName) { document ->
+            require(pageIndex in 0 until document.numberOfPages) { "Select a valid page to duplicate." }
+            val original = document.getPage(pageIndex)
+            val duplicate = document.importPage(original)
+            document.pages.insertAfter(duplicate, original)
+        }
+    }
+
     suspend fun insertBlankPage(
         sourceUri: Uri,
         position: Int,
