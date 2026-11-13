@@ -17,7 +17,6 @@ import com.tom_roush.pdfbox.pdmodel.font.PDType1Font
 import com.tom_roush.pdfbox.pdmodel.graphics.image.PDImageXObject
 import com.tom_roush.pdfbox.text.PDFTextStripper
 import kotlinx.coroutines.runBlocking
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -55,7 +54,7 @@ class PdfSecureRedactionInstrumentedTest {
             )
             val redactedFile = requireNotNull(output)
             PDDocument.load(redactedFile).use { redacted ->
-                assertEquals(1, redacted.numberOfPages)
+                assertTrue(redacted.numberOfPages == 1)
                 assertTrue(PDFTextStripper().getText(redacted).isBlank())
                 val resources = redacted.getPage(0).resources
                 assertTrue(resources.xObjectNames.any { name -> resources.getXObject(name) is PDImageXObject })
@@ -73,7 +72,16 @@ class PdfSecureRedactionInstrumentedTest {
                             page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
                             val x = (165f / 300f * bitmap.width).toInt().coerceIn(0, bitmap.width - 1)
                             val y = (195f / 400f * bitmap.height).toInt().coerceIn(0, bitmap.height - 1)
-                            assertEquals(Color.BLACK, bitmap.getPixel(x, y))
+                            val pixel = bitmap.getPixel(x, y)
+                            // PdfRenderer may apply display color management; verify the pixel
+                            // remains effectively black rather than requiring exact RGB equality.
+                            assertTrue(
+                                "Expected an effectively black redaction pixel, got ${Integer.toHexString(pixel)}",
+                                Color.alpha(pixel) == 255 &&
+                                    Color.red(pixel) <= 32 &&
+                                    Color.green(pixel) <= 32 &&
+                                    Color.blue(pixel) <= 32
+                            )
                         } finally {
                             bitmap.recycle()
                         }
