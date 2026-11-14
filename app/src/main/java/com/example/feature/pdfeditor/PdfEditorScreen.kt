@@ -928,12 +928,11 @@ fun PdfEditorScreen(
                                     },
                                     onSelectAll = { viewModel.selectAllWordsOnCurrentPage() },
                                     onChangeColor = {
-                                        textColor = 0xFFDC2626 // Quick Red toggle
-                                        viewModel.replaceSelectedWords(
-                                            newText = selectedWords.joinToString(" ") { it.text },
-                                            fontSizePt = selectedWords.first().fontSizePt,
-                                            textColor = textColor
-                                        )
+                                        Toast.makeText(
+                                            context,
+                                            "Original PDF text color cannot be changed by native text replacement. Add a text overlay to use custom colors.",
+                                            Toast.LENGTH_LONG
+                                        ).show()
                                     },
                                     modifier = Modifier
                                         .align(Alignment.TopCenter)
@@ -1000,7 +999,7 @@ fun PdfEditorScreen(
                             shape = RoundedCornerShape(8.dp)
                         ) {
                             Text(
-                                "This operation places a cover over the selected text and adds a new text overlay. The original PDF text remains underneath and may still be extracted. This is not secure redaction or direct editing of the original text object.",
+                                "This edits the original PDF text object only when the selected printable ASCII text is uniquely found in one text-show operation and the replacement preserves its exact text advance. Unsupported text, including Bengali, may be rejected without changing the source. Original font, size and color are preserved; the styling controls below apply only to new text overlays.",
                                 modifier = Modifier.padding(12.dp),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onErrorContainer
