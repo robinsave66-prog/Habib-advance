@@ -268,4 +268,51 @@ class PdfBoxDocumentEngineTest {
         }
     }
 
+
+    @Test
+    fun outputNameCollisionDoesNotOverwriteExistingDocument() = runBlocking {
+        val firstOutput = engine.deletePages(
+            Uri.fromFile(source), setOf(1), "collision-protected-output.pdf"
+        )
+
+        var rejected = false
+        try {
+            engine.deletePages(
+                Uri.fromFile(source), setOf(0), "collision-protected-output.pdf"
+            )
+        } catch (_: IllegalArgumentException) {
+            rejected = true
+        }
+
+        assertTrue("An existing output file must not be overwritten", rejected)
+        PDDocument.load(firstOutput).use { document ->
+            assertEquals(2, document.numberOfPages)
+            assertEquals(300f, document.getPage(0).mediaBox.width, 0.01f)
+        }
+        PDDocument.load(source).use { document ->
+            assertEquals(3, document.numberOfPages)
+        }
+    }
+
+    @Test
+    fun passwordUnlockRejectsBlankPasswordWithoutCreatingOutput() = runBlocking {
+        var rejected = false
+        try {
+            engine.removePassword(
+                sourceUri = Uri.fromFile(source),
+                password = "   ",
+                outputFileName = "blank-password-must-not-exist.pdf"
+            )
+        } catch (_: IllegalArgumentException) {
+            rejected = true
+        }
+
+        assertTrue("Blank passwords must be rejected", rejected)
+        assertTrue(
+            "No output should be created for a blank password",
+            !File(context.filesDir, "documents/blank-password-must-not-exist.pdf").exists()
+        )
+        assertTrue(source.exists())
+    }
+
 }
