@@ -216,6 +216,32 @@ class PdfBoxDocumentEngineTest {
     }
 
     @Test
+    fun ownerPasswordCanUnlockPdfAndOutputOpensWithoutPassword() = runBlocking {
+        val protected = engine.protectPdf(
+            sourceUri = Uri.fromFile(source),
+            userPassword = "owner-unlock-user-123",
+            ownerPassword = "owner-unlock-owner-456",
+            outputFileName = "owner-unlock-protected.pdf"
+        )
+
+        val unlocked = engine.removePassword(
+            sourceUri = Uri.fromFile(protected),
+            password = "owner-unlock-owner-456",
+            outputFileName = "owner-password-unlocked.pdf"
+        )
+
+        PDDocument.load(unlocked).use { document ->
+            assertEquals(3, document.numberOfPages)
+            assertEquals(300f, document.getPage(0).mediaBox.width, 0.01f)
+            assertTrue("Unlocked output should not require a password",
+                !document.isEncrypted)
+        }
+        PDDocument.load(protected, "owner-unlock-user-123").use { document ->
+            assertEquals(3, document.numberOfPages)
+        }
+    }
+
+    @Test
     fun passwordUnlockRejectsAnIncorrectPasswordAndKeepsSourceIntact() = runBlocking {
         val protected = engine.protectPdf(
             sourceUri = Uri.fromFile(source),
