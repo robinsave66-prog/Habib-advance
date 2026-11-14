@@ -10,6 +10,8 @@ import android.os.ParcelFileDescriptor
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
+import com.tom_roush.pdfbox.pdmodel.PDDocument
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
@@ -205,74 +207,39 @@ object AdvancedPdfOperationsEngine {
             "${outputFileName.trim().replace("\\s+".toRegex(), "_")}.pdf"
         }
         val targetFile = File(docsDir, safeName)
+        require(!targetFile.exists()) { "A file with this name already exists. Choose another name." }
 
-        val scaleFactor = when (compressionLevel) {
-            "Low" -> 0.90f
-            "Medium" -> 0.75f
-            "High" -> 0.55f
-            else -> 0.75f
+        // Lossless PDFBox rewrite: keeps native text, vector paths and page structure.
+        // PDFBox does not guarantee a smaller result for every source PDF; compression
+        // levels are retained for UI compatibility but do not trigger destructive rasterization.
+        require(compressionLevel in setOf("Low", "Medium", "High")) {
+            "Choose a supported compression preset."
         }
-        val jpegQuality = when (compressionLevel) {
-            "Low" -> 85
-            "Medium" -> 70
-            "High" -> 50
-            else -> 70
-        }
-
-        val compressedDoc = PdfDocument()
-        val tempSource = File(context.cacheDir, "temp_compress_${System.currentTimeMillis()}.pdf")
-
+        val tempSource = File(context.cacheDir, "temp_compress_${java.util.UUID.randomUUID()}.pdf")
         try {
             context.contentResolver.openInputStream(sourceUri)?.use { input ->
                 FileOutputStream(tempSource).use { output -> input.copyTo(output) }
+            } ?: throw IllegalArgumentException("Cannot open the selected PDF.")
+            require(tempSource.length() > 0L) { "The selected PDF is empty or unreadable." }
+
+            PDFBoxResourceLoader.init(context)
+            PDDocument.load(tempSource).use { document ->
+                require(document.numberOfPages > 0) { "The selected PDF has no pages." }
+                document.save(targetFile)
             }
-
-            if (tempSource.exists() && tempSource.length() > 0) {
-                val pfd = ParcelFileDescriptor.open(tempSource, ParcelFileDescriptor.MODE_READ_ONLY)
-                val renderer = PdfRenderer(pfd)
-
-                for (i in 0 until renderer.pageCount) {
-                    val page = renderer.openPage(i)
-                    val origW = page.width
-                    val origH = page.height
-
-                    val scaledW = (origW * scaleFactor).toInt().coerceAtLeast(1)
-                    val scaledH = (origH * scaleFactor).toInt().coerceAtLeast(1)
-
-                    val bmp = Bitmap.createBitmap(scaledW, scaledH, Bitmap.Config.ARGB_8888)
-                    bmp.eraseColor(Color.WHITE)
-                    val matrix = android.graphics.Matrix().apply { postScale(scaleFactor, scaleFactor) }
-                    page.render(bmp, null, matrix, PdfRenderer.Page.RENDER_MODE_FOR_PRINT)
-                    page.close()
-
-                    val stream = ByteArrayOutputStream()
-                    bmp.compress(Bitmap.CompressFormat.JPEG, jpegQuality, stream)
-                    val compressedBmp = android.graphics.BitmapFactory.decodeByteArray(stream.toByteArray(), 0, stream.size())
-                    bmp.recycle()
-
-                    val pageInfo = PdfDocument.PageInfo.Builder(origW, origH, i + 1).create()
-                    val newPage = compressedDoc.startPage(pageInfo)
-                    val canvas = newPage.canvas
-                    val destRect = android.graphics.RectF(0f, 0f, origW.toFloat(), origH.toFloat())
-                    canvas.drawBitmap(compressedBmp, null, destRect, null)
-                    compressedBmp.recycle()
-                    compressedDoc.finishPage(newPage)
-                }
-                renderer.close()
-                pfd.close()
+            require(targetFile.exists() && targetFile.length() > 0L) {
+                "PDF optimization did not create a valid output file."
             }
-
-            FileOutputStream(targetFile).use { out ->
-                compressedDoc.writeTo(out)
-            }
-            compressedDoc.close()
-        } catch (_: Exception) {
-            writeRawMergedPdf(targetFile, 1)
+            targetFile
+        } catch (error: Exception) {
+            targetFile.delete()
+            throw IllegalStateException(
+                "Lossless PDF optimization failed. The original file was not changed: ${error.message}",
+                error
+            )
         } finally {
             tempSource.delete()
         }
-
-        targetFile
     }
 
     /**

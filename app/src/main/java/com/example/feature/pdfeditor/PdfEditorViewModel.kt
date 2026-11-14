@@ -4,10 +4,16 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.RectF
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import androidx.core.content.FileProvider
+import com.example.engine.pdfbox.PdfBoxDocumentEngine
+import com.example.engine.pdfbox.PdfBoxOverlayExportEngine
+import com.example.engine.pdfbox.PdfSecureRedactionEngine
+import com.example.engine.pdfbox.PdfNativeTextEditEngine
 import com.example.engine.core.IPdfRenderer
 import com.example.engine.core.PdfDocumentInfo
 import com.example.engine.core.PdfLoadResult
@@ -61,6 +67,10 @@ class PdfEditorViewModel(
 ) : ViewModel() {
 
     private val renderer: IPdfRenderer = AndroidNativePdfRenderer(context)
+    private val pageEngine = PdfBoxDocumentEngine(context)
+    private val overlayExportEngine = PdfBoxOverlayExportEngine(context)
+    private val secureRedactionEngine = PdfSecureRedactionEngine(context)
+    private val nativeTextEditEngine = PdfNativeTextEditEngine(context)
 
     private val _status = MutableStateFlow<EditorUiStatus>(EditorUiStatus.Idle)
     val status: StateFlow<EditorUiStatus> = _status.asStateFlow()
@@ -266,32 +276,76 @@ class PdfEditorViewModel(
         return copied
     }
 
+    /**
+     * Permanently removes selected content by rasterizing every PDF page at 300 DPI,
+     * applying opaque redaction blocks, and rebuilding an image-only PDF.
+     */
     fun deleteSelectedWords() {
         val words = _selectedWords.value
         if (words.isEmpty()) return
-
+        val source = sourceDocUri ?: run {
+            _status.value = EditorUiStatus.Error("Open a PDF before applying redaction.")
+            return
+        }
         val page = _currentPage.value
-        pushUndo()
-
-        // Create clean opaque redaction cover matching page background (white)
-        val minX = words.minOf { it.bounds.left } - 2f
-        val minY = words.minOf { it.bounds.top } - 1f
-        val maxX = words.maxOf { it.bounds.right } + 2f
-        val maxY = words.maxOf { it.bounds.bottom } + 1f
-
-        val redactionShape = ShapeElement(
-            pageIndex = page,
-            x = minX,
-            y = minY,
-            width = (maxX - minX).coerceAtLeast(10f),
-            height = (maxY - minY).coerceAtLeast(10f),
-            shapeType = ShapeType.RECTANGLE,
-            strokeColor = 0xFFFFFFFF,
-            fillColor = 0xFFFFFFFF,
-            strokeWidthPt = 0f
+        val bounds = RectF(
+            words.minOf { it.bounds.left },
+            words.minOf { it.bounds.top },
+            words.maxOf { it.bounds.right },
+            words.maxOf { it.bounds.bottom }
         )
-        addElement(redactionShape)
-        _selectedWords.value = emptyList()
+        if (bounds.width() <= 0f || bounds.height() <= 0f) {
+            _status.value = EditorUiStatus.Error("The selected text has invalid page coordinates.")
+            return
+        }
+        _status.value = EditorUiStatus.Exporting("Applying permanent redaction and flattening PDF pages…")
+        viewModelScope.launch {
+            var stagedOverlayPdf: File? = null
+            try {
+                val redactionSource = if (_elements.value.isNotEmpty()) {
+                    stagedOverlayPdf = overlayExportEngine.export(
+                        sourceUri = source,
+                        elementsByPage = _elements.value,
+                        outputFileName = "Pre_Redaction_${System.currentTimeMillis()}.pdf"
+                    )
+                    Uri.fromFile(stagedOverlayPdf)
+                } else source
+
+                val redactedFile = secureRedactionEngine.redact(
+                    sourceUri = redactionSource,
+                    redactionsByPage = mapOf(page to listOf(bounds)),
+                    outputFileName = "Secure_Redaction_${System.currentTimeMillis()}.pdf"
+                )
+                val redactedUri = FileProvider.getUriForFile(
+                    context,
+                    "${context.packageName}.fileprovider",
+                    redactedFile
+                )
+                when (val loaded = renderer.openDocument(redactedUri)) {
+                    is PdfLoadResult.Success -> {
+                        sourceDocUri = redactedUri
+                        _elements.value = emptyMap()
+                        _detectedWords.value = emptyMap()
+                        _selectedWords.value = emptyList()
+                        _selectedElementId.value = null
+                        undoStack.clear()
+                        redoStack.clear()
+                        _currentPage.value = page.coerceIn(0, loaded.documentInfo.pageCount - 1)
+                        _pageDimensions.value = renderer.getPageDimensions(_currentPage.value) ?: Pair(595, 842)
+                        _status.value = EditorUiStatus.Loaded(loaded.documentInfo)
+                    }
+                    is PdfLoadResult.PasswordRequired -> _status.value = EditorUiStatus.Error(loaded.message)
+                    is PdfLoadResult.Corrupted -> _status.value = EditorUiStatus.Error(loaded.message)
+                    is PdfLoadResult.Error -> _status.value = EditorUiStatus.Error(
+                        loaded.throwable.localizedMessage ?: "Could not reopen the redacted PDF."
+                    )
+                }
+            } catch (error: Exception) {
+                _status.value = EditorUiStatus.Error(error.localizedMessage ?: "Permanent PDF redaction failed.")
+            } finally {
+                stagedOverlayPdf?.delete()
+            }
+        }
     }
 
     fun replaceSelectedWords(
@@ -306,33 +360,82 @@ class PdfEditorViewModel(
     ) {
         val words = _selectedWords.value
         val page = _currentPage.value
-        pushUndo()
 
-        val minX = if (words.isNotEmpty()) words.minOf { it.bounds.left } else 60f
-        val minY = if (words.isNotEmpty()) words.minOf { it.bounds.top } else 100f
-        val origW = if (words.isNotEmpty()) (words.maxOf { it.bounds.right } - minX).coerceAtLeast(40f) else 140f
-        val origH = if (words.isNotEmpty()) (words.maxOf { it.bounds.bottom } - minY).coerceAtLeast(20f) else 30f
+        if (words.isEmpty()) {
+            // No source text is selected: create a new editable overlay text object.
+            val minX = 60f
+            val minY = 100f
+            val approxWidth = maxOf(140f, newText.length * fontSizePt * 0.65f)
+            addElement(
+                TextElement(
+                    pageIndex = page,
+                    x = minX,
+                    y = minY,
+                    width = approxWidth,
+                    height = fontSizePt + 6f,
+                    text = newText,
+                    fontSizePt = fontSizePt,
+                    textColor = textColor,
+                    backgroundColor = backgroundColor,
+                    isBold = isBold,
+                    isItalic = isItalic,
+                    isUnderline = isUnderline,
+                    textAlign = textAlign
+                )
+            )
+            return
+        }
 
-        val approxWidth = maxOf(origW, newText.length * fontSizePt * 0.65f)
+        val source = sourceDocUri
+        if (source == null) {
+            _status.value = EditorUiStatus.Error("The source PDF is not available for native text editing.")
+            return
+        }
+        val oldText = words.joinToString(" ") { it.text }.trim()
+        if (oldText.isBlank()) {
+            _status.value = EditorUiStatus.Error("No editable source text was selected.")
+            return
+        }
 
-        val replacementElem = TextElement(
-            pageIndex = page,
-            x = minX,
-            y = minY,
-            width = approxWidth,
-            height = origH.coerceAtLeast(fontSizePt + 6f),
-            text = newText,
-            fontSizePt = fontSizePt,
-            textColor = textColor,
-            backgroundColor = backgroundColor, // Respects null! No unwanted background box
-            isBold = isBold,
-            isItalic = isItalic,
-            isUnderline = isUnderline,
-            textAlign = textAlign
-        )
-
-        addElement(replacementElem)
-        _selectedWords.value = emptyList()
+        // Native replacement preserves the original PDF font, size, color and text state.
+        // Requested styling controls apply to newly inserted overlay text, not this operation.
+        _status.value = EditorUiStatus.Exporting("Editing the original PDF text…")
+        viewModelScope.launch {
+            try {
+                val editedFile = nativeTextEditEngine.replaceText(
+                    sourceUri = source,
+                    pageIndex = page,
+                    oldText = oldText,
+                    newText = newText,
+                    outputFileName = "Native_Text_Edit_${System.currentTimeMillis()}.pdf"
+                )
+                val editedUri = FileProvider.getUriForFile(
+                    context,
+                    "${context.packageName}.fileprovider",
+                    editedFile
+                )
+                when (val loaded = renderer.openDocument(editedUri)) {
+                    is PdfLoadResult.Success -> {
+                        sourceDocUri = editedUri
+                        _detectedWords.value = emptyMap()
+                        _selectedWords.value = emptyList()
+                        _selectedElementId.value = null
+                        _currentPage.value = page.coerceIn(0, loaded.documentInfo.pageCount - 1)
+                        _pageDimensions.value = renderer.getPageDimensions(_currentPage.value) ?: Pair(595, 842)
+                        _status.value = EditorUiStatus.Loaded(loaded.documentInfo)
+                    }
+                    is PdfLoadResult.PasswordRequired -> _status.value = EditorUiStatus.Error(loaded.message)
+                    is PdfLoadResult.Corrupted -> _status.value = EditorUiStatus.Error(loaded.message)
+                    is PdfLoadResult.Error -> _status.value = EditorUiStatus.Error(
+                        loaded.throwable.localizedMessage ?: "Could not reopen the natively edited PDF."
+                    )
+                }
+            } catch (error: Exception) {
+                _status.value = EditorUiStatus.Error(
+                    error.localizedMessage ?: "Native PDF text editing failed."
+                )
+            }
+        }
     }
 
     fun pasteTextAtPosition(
@@ -556,6 +659,206 @@ class PdfEditorViewModel(
         }
     }
 
+    // --- Native PDF page operations (PDFBox; preserves PDF page objects) ---
+
+    private fun applyPageOperation(
+        progress: String,
+        outputName: String,
+        operation: suspend (Uri, String) -> File,
+        pageAfter: Int = _currentPage.value,
+        remapElements: (Map<Int, List<EditorElement>>) -> Map<Int, List<EditorElement>> = { it }
+    ) {
+        val source = sourceDocUri ?: return
+        _status.value = EditorUiStatus.Exporting(progress)
+        viewModelScope.launch {
+            try {
+                val output = operation(source, outputName)
+                val outputUri = FileProvider.getUriForFile(
+                    context,
+                    "${context.packageName}.fileprovider",
+                    output
+                )
+                when (val loaded = renderer.openDocument(outputUri)) {
+                    is PdfLoadResult.Success -> {
+                        sourceDocUri = outputUri
+                        // Keep editor overlays and remap their page indexes when page structure changes.
+                        _elements.value = remapElements(_elements.value)
+                            .filterKeys { it in 0 until loaded.documentInfo.pageCount }
+                        _detectedWords.value = emptyMap()
+                        _selectedWords.value = emptyList()
+                        _selectedElementId.value = null
+                        _currentPage.value = pageAfter.coerceIn(0, loaded.documentInfo.pageCount - 1)
+                        _pageDimensions.value = renderer.getPageDimensions(_currentPage.value) ?: Pair(595, 842)
+                        _status.value = EditorUiStatus.Loaded(loaded.documentInfo)
+                    }
+                    is PdfLoadResult.PasswordRequired -> _status.value = EditorUiStatus.Error(loaded.message)
+                    is PdfLoadResult.Corrupted -> _status.value = EditorUiStatus.Error(loaded.message)
+                    is PdfLoadResult.Error -> _status.value = EditorUiStatus.Error(
+                        loaded.throwable.localizedMessage ?: "Could not reopen edited PDF"
+                    )
+                }
+            } catch (error: Exception) {
+                _status.value = EditorUiStatus.Error(error.localizedMessage ?: "PDF page operation failed")
+            }
+        }
+    }
+
+    fun deleteSelectedPages(pageIndices: List<Int>) {
+        val selected = pageIndices.toSortedSet()
+        if (selected.isEmpty()) {
+            _status.value = EditorUiStatus.Error("Select at least one page.")
+            return
+        }
+        val count = renderer.getPageCount()
+        if (selected.any { it !in 0 until count } || selected.size >= count) {
+            _status.value = EditorUiStatus.Error("Select valid pages. A PDF must keep at least one page.")
+            return
+        }
+        val firstRemaining = (0 until count).firstOrNull { it !in selected } ?: 0
+        applyPageOperation(
+            "Deleting " + selected.size + " pages…", "Pages_Delete_" + System.currentTimeMillis() + ".pdf",
+            { uri, name -> pageEngine.deletePages(uri, selected, name) },
+            (firstRemaining - selected.count { it < firstRemaining }).coerceAtLeast(0),
+            { elements -> elements.mapNotNull { (oldIndex, items) ->
+                if (oldIndex in selected) null
+                else (oldIndex - selected.count { it < oldIndex }) to items
+            }.toMap() }
+        )
+    }
+
+    fun extractSelectedPages(pageIndices: List<Int>) {
+        val selected = pageIndices.distinct().sorted()
+        if (selected.isEmpty()) {
+            _status.value = EditorUiStatus.Error("Select at least one page.")
+            return
+        }
+        val count = renderer.getPageCount()
+        if (selected.any { it !in 0 until count }) {
+            _status.value = EditorUiStatus.Error("One or more selected pages are outside the document.")
+            return
+        }
+        val newIndexByOld = selected.withIndex().associate { (newIndex, oldIndex) -> oldIndex to newIndex }
+        applyPageOperation(
+            "Extracting " + selected.size + " pages…", "Pages_Extract_" + System.currentTimeMillis() + ".pdf",
+            { uri, name -> pageEngine.extractPages(uri, selected, name) },
+            0,
+            { elements -> elements.mapNotNull { (oldIndex, items) ->
+                newIndexByOld[oldIndex]?.let { it to items }
+            }.toMap() }
+        )
+    }
+
+    fun deleteCurrentPage() {
+        val page = _currentPage.value
+        applyPageOperation(
+            "Deleting page…", "Page_Delete_${System.currentTimeMillis()}.pdf",
+            { uri, name -> pageEngine.deletePages(uri, setOf(page), name) },
+            (page - 1).coerceAtLeast(0),
+            { elements -> elements.mapNotNull { (index, items) ->
+                when {
+                    index == page -> null
+                    index > page -> (index - 1) to items
+                    else -> index to items
+                }
+            }.toMap() }
+        )
+    }
+
+    fun insertBlankPageAfterCurrent() {
+        val page = _currentPage.value
+        applyPageOperation(
+            "Inserting blank page…", "Page_Insert_${System.currentTimeMillis()}.pdf",
+            { uri, name -> pageEngine.insertBlankPage(uri, page + 1, name) },
+            page + 1,
+            { elements -> elements.map { (index, items) ->
+                (if (index >= page + 1) index + 1 else index) to items
+            }.toMap() }
+        )
+    }
+
+    fun duplicateCurrentPage() {
+        val page = _currentPage.value
+        applyPageOperation(
+            "Duplicating page…", "Page_Duplicate_${System.currentTimeMillis()}.pdf",
+            { uri, name -> pageEngine.duplicatePage(uri, page, name) },
+            page + 1,
+            { elements ->
+                val remapped = mutableMapOf<Int, List<EditorElement>>()
+                elements.forEach { (index, items) ->
+                    remapped[if (index > page) index + 1 else index] = items
+                }
+                elements[page]?.let { remapped[page + 1] = it }
+                remapped
+            }
+        )
+    }
+
+    fun moveCurrentPageBy(delta: Int) {
+        if (delta == 0) return
+        val page = _currentPage.value
+        val count = renderer.getPageCount()
+        val target = (page + delta).coerceIn(0, count - 1)
+        if (target == page) return
+        val order = (0 until count).toMutableList().apply {
+            val moved = removeAt(page)
+            add(target, moved)
+        }
+        val newIndexByOld = order.withIndex().associate { (newIndex, oldIndex) -> oldIndex to newIndex }
+        applyPageOperation(
+            "Reordering pages…", "Page_Reorder_${System.currentTimeMillis()}.pdf",
+            { uri, name -> pageEngine.reorderPages(uri, order, name) },
+            target,
+            { elements -> elements.mapNotNull { (oldIndex, items) ->
+                newIndexByOld[oldIndex]?.let { it to items }
+            }.toMap() }
+        )
+    }
+
+    fun rotateCurrentPage() {
+        val page = _currentPage.value
+        val (_, oldPageHeight) = _pageDimensions.value
+        applyPageOperation(
+            "Rotating page…", "Page_Rotate_${System.currentTimeMillis()}.pdf",
+            { uri, name -> pageEngine.rotatePages(uri, setOf(page), 90, name) },
+            page,
+            { elements ->
+                elements.mapValues { (index, items) ->
+                    if (index != page) items else items.map { element ->
+                        element
+                            .copyWithPosition(
+                                oldPageHeight - element.y - element.height,
+                                element.x
+                            )
+                            .copyWithSize(element.height, element.width)
+                            .copyWithRotation(element.rotationDegrees + 90f)
+                    }
+                }
+            }
+        )
+    }
+
+    fun extractCurrentPage() {
+        val page = _currentPage.value
+        applyPageOperation(
+            "Extracting current page…", "Page_Extract_${System.currentTimeMillis()}.pdf",
+            { uri, name -> pageEngine.extractPages(uri, listOf(page), name) },
+            0,
+            { elements -> elements[page]?.let { mapOf(0 to it) }.orEmpty() }
+        )
+    }
+
+    fun mergePdfDocuments(uris: List<Uri>) {
+        if (uris.size < 2) {
+            _status.value = EditorUiStatus.Error("Select at least two PDF files to merge.")
+            return
+        }
+        applyPageOperation(
+            "Merging PDF files…", "Merged_Document_${System.currentTimeMillis()}.pdf",
+            { _, name -> pageEngine.mergePdfs(uris, name) },
+            0
+        )
+    }
+
     // --- Export & Save ---
 
     fun exportEditedPdf(outputName: String, onSuccess: (File) -> Unit) {
@@ -565,10 +868,8 @@ class PdfEditorViewModel(
 
         viewModelScope.launch {
             try {
-                val exportedFile = PdfExportEngine.exportPdfWithEdits(
-                    context = context,
+                val exportedFile = overlayExportEngine.export(
                     sourceUri = uri,
-                    pageCount = total,
                     elementsByPage = _elements.value,
                     outputFileName = outputName
                 )

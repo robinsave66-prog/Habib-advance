@@ -226,24 +226,20 @@ object WordToPdfConverterEngine {
                     }
                 }
             }
-        } catch (_: Exception) {}
-
-        if (documentXmlBytes == null) {
-            // Fallback: minimal node if document.xml could not be extracted
-            val fallbackNode = DocxParagraphNode(
-                runs = listOf(DocxRun(text = "Empty or unreadable Word document.", fontSizePt = 12f))
-            )
-            return ParsedDocxResult(
-                nodes = listOf(fallbackNode),
-                paragraphCount = 1,
-                tableCount = 0,
-                imageCount = 0,
-                totalCharacters = 33,
-                lastParagraphText = "Empty or unreadable Word document."
-            )
+        } catch (error: Exception) {
+            imagesMap.values.toSet().forEach { if (!it.isRecycled) it.recycle() }
+            throw IllegalArgumentException("The selected Word file could not be read as a valid DOCX package: ${error.message}", error)
         }
 
-        return parseDocumentXml(documentXmlBytes!!, relsMap, imagesMap)
+        val documentXml = documentXmlBytes
+            ?: throw IllegalArgumentException("This file is not a valid DOCX document: word/document.xml is missing.")
+
+        return try {
+            parseDocumentXml(documentXml, relsMap, imagesMap)
+        } catch (error: Exception) {
+            imagesMap.values.toSet().forEach { if (!it.isRecycled) it.recycle() }
+            throw IllegalArgumentException("The Word document structure could not be parsed: ${error.message}", error)
+        }
     }
 
     private fun parseRelationships(xml: String, relsMap: MutableMap<String, String>) {
@@ -270,6 +266,10 @@ object WordToPdfConverterEngine {
         try {
             val dbf = DocumentBuilderFactory.newInstance()
             dbf.isNamespaceAware = true
+            dbf.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
+            dbf.setFeature("http://xml.org/sax/features/external-general-entities", false)
+            dbf.setFeature("http://xml.org/sax/features/external-parameter-entities", false)
+            dbf.setExpandEntityReferences(false)
             val db = dbf.newDocumentBuilder()
             val doc = db.parse(xmlBytes.inputStream())
             val bodyList = doc.getElementsByTagNameNS("*", "body")

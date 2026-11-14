@@ -1,4 +1,7 @@
 import com.google.gms.googleservices.GoogleServicesPlugin.MissingGoogleServicesStrategy
+import java.io.File
+import java.net.URL
+import java.security.MessageDigest
 
 plugins {
   alias(libs.plugins.android.application)
@@ -16,8 +19,8 @@ android {
     applicationId = "com.habib.advanceeditor"
     minSdk = 26
     targetSdk = 36
-    versionCode = 3
-    versionName = "1.2"
+    versionCode = 5
+    versionName = "1.4"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -108,6 +111,10 @@ dependencies {
   implementation(libs.coil.compose)
   implementation(libs.converter.moshi)
   implementation(libs.firebase.ai)
+  // ML Kit Latin OCR used by rich PDF-to-DOCX extraction.
+  implementation(libs.mlkit.text.recognition)
+  // Task.await() bridge for Google Play Services asynchronous APIs.
+  implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.10.2")
   // Uncomment to use Firestore:
   // implementation(libs.firebase.firestore)
 
@@ -124,7 +131,10 @@ dependencies {
   implementation(libs.logging.interceptor)
   implementation(libs.moshi.kotlin)
   implementation(libs.okhttp)
-  implementation(libs.mlkit.text.recognition)
+  // Tesseract 5 offline OCR (Apache-2.0); Bengali and English models are packaged at build time.
+  implementation("cz.adaptech.tesseract4android:tesseract4android:4.9.0")
+  // Apache-2.0 PDF object and page manipulation engine.
+  implementation("com.tom-roush:pdfbox-android:2.0.27.0")
   // implementation(libs.play.services.location)
   implementation(libs.retrofit)
   testImplementation(libs.androidx.compose.ui.test.junit4)
@@ -142,4 +152,56 @@ dependencies {
   debugImplementation(libs.androidx.compose.ui.tooling)
   "ksp"(libs.androidx.room.compiler)
   "ksp"(libs.moshi.kotlin.codegen)
+}
+
+
+// Download pinned official tessdata_fast models so the installed APK works offline.
+val ocrModelSpecs = listOf(
+  Triple("ben", "c300ca8fbf0543f2fdd3256dbd5a203f404b513d", 855841L),
+  Triple("eng", "31abd495e0f719db4f524c447e9d855124a0b0d6", 4113088L)
+)
+val downloadOcrLanguageModels = tasks.register("downloadOcrLanguageModels") {
+  val modelDirectory = layout.projectDirectory.dir("src/main/assets/tessdata")
+  outputs.files(ocrModelSpecs.map { modelDirectory.file("${it.first}.traineddata") })
+  doLast {
+    val directory = modelDirectory.asFile.apply { mkdirs() }
+    ocrModelSpecs.forEach { (language, expectedSha1, expectedSize) ->
+      val target = File(directory, "$language.traineddata")
+      fun sha1Of(file: File): String =
+        MessageDigest.getInstance("SHA-1")
+          .digest(file.readBytes())
+          .joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
+
+      // Never trust a cached model based on file size alone: same-size corruption
+      // must trigger a fresh download before the assets are packaged.
+      val existingIsValid = target.isFile &&
+        target.length() == expectedSize &&
+        sha1Of(target) == expectedSha1
+      if (!existingIsValid) {
+        val temporary = File(directory, "$language.traineddata.download")
+        temporary.delete()
+        val modelUrl = "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/87416418657359cb625c412a48b6e1d6d41c29bd/$language.traineddata"
+        URL(modelUrl).openConnection().apply {
+          connectTimeout = 20000
+          readTimeout = 60000
+        }.getInputStream().use { input ->
+          temporary.outputStream().use { output -> input.copyTo(output) }
+        }
+        val downloadedSize = temporary.length()
+        check(downloadedSize == expectedSize) {
+          temporary.delete()
+          "Downloaded $language OCR model has an unexpected size: $downloadedSize"
+        }
+        val downloadedSha1 = sha1Of(temporary)
+        check(downloadedSha1 == expectedSha1) {
+          temporary.delete()
+          "Downloaded $language OCR model failed SHA-1 integrity verification: $downloadedSha1"
+        }
+        check(temporary.renameTo(target)) { "Unable to install $language OCR model." }
+      }
+    }
+  }
+}
+tasks.named("preBuild").configure {
+  dependsOn(downloadOcrLanguageModels)
 }
