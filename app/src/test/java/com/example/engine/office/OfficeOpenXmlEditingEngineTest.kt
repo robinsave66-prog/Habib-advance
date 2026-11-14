@@ -453,7 +453,7 @@ class OfficeOpenXmlEditingEngineTest {
         ZipFile(out).use { zip ->
             val xml = zip.getInputStream(zip.getEntry("word/document.xml")).bufferedReader().readText()
             assertTrue(xml.contains("""w:fill="AABBCC""""))
-            assertTrue(xml.contains("""w:val="CENTER""""))
+            assertTrue(xml.contains("""w:val="center""""))
             assertTrue(xml.contains("""w:val="112233""""))
             assertTrue(xml.contains("""w:val="28""""))
             assertTrue(xml.contains("<w:b")); assertTrue(xml.contains("<w:i")); assertTrue(xml.contains("<w:u"))
