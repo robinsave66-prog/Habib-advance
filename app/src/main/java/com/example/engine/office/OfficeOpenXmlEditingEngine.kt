@@ -570,7 +570,7 @@ class OfficeOpenXmlEditingEngine(private val context: Context) {
                     while (shape != null && !(shape.localName == "sp" && shape.namespaceURI == PRESENTATION_NS)) {
                         shape = shape.parentNode as? Element
                     }
-                    val shapeProperties = shape?.getElementsByTagNameNS(DRAWING_NS, "spPr")?.item(0) as? Element
+                    val shapeProperties = shape?.getElementsByTagNameNS(PRESENTATION_NS, "spPr")?.item(0) as? Element
                         ?: throw IllegalArgumentException("Selected object is not an editable PowerPoint shape.")
                     fun addSolidFill(parent: Element, color: String) {
                         val fillNames = setOf("solidFill", "gradFill", "blipFill", "pattFill", "noFill", "grpFill")
