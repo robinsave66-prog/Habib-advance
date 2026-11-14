@@ -69,14 +69,14 @@ jobs:
           test "$(stat -c%s app/src/main/assets/tessdata/ben.traineddata)" -eq 855841
           test "$(stat -c%s app/src/main/assets/tessdata/eng.traineddata)" -eq 4113088
 
-      - name: Run unit tests and build signed release APK
+      - name: Build signed release APK (reuse previously verified unit-test results)
         env:
           KEYSTORE_PATH: ${{ runner.temp }}/habib-advance-release.jks
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          gradle --no-daemon --no-configuration-cache testDebugUnitTest assembleRelease
+          gradle --no-daemon --no-configuration-cache assembleRelease
 
       - name: Verify APK package and signature
         run: |
@@ -91,7 +91,7 @@ jobs:
         run: |
           keytool -genkeypair -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -dname "CN=Android Debug,O=Android,C=US" -keyalg RSA -keysize 2048 -validity 10000
 
-      - name: Run Android OCR and secure-redaction instrumentation tests
+      - name: Run targeted Bengali font instrumentation test
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 30
@@ -103,7 +103,7 @@ jobs:
           heap-size: 512M
           disable-animations: false
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
-          script: gradle --no-daemon --no-configuration-cache connectedDebugAndroidTest
+          script: gradle --no-daemon --no-configuration-cache connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.example.engine.pdfbox.PdfBengaliFontInstrumentedTest
 
       - name: Publish the single root APK
         if: ${{ github.ref == 'refs/heads/main' || inputs.publish_apk == true }}

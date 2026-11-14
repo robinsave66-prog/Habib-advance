@@ -33,6 +33,11 @@ import java.io.FileOutputStream
  * Existing PDF page content is retained; this is not arbitrary inline text-object editing.
  */
 class PdfBoxOverlayExportEngine(private val context: Context) {
+    // Bundle a deterministic Bengali typeface; do not rely on OEM/system font fallback.
+    private val bengaliTypeface: Typeface by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        Typeface.createFromAsset(context.assets, "fonts/NotoSansBengali[wdth,wght].ttf")
+    }
+
     suspend fun export(
         sourceUri: Uri,
         elementsByPage: Map<Int, List<EditorElement>>,
@@ -234,7 +239,7 @@ class PdfBoxOverlayExportEngine(private val context: Context) {
             val paint = TextPaint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG).apply {
                 color = element.textColor.toInt()
                 textSize = element.fontSizePt.coerceAtLeast(1f)
-                typeface = Typeface.create(Typeface.DEFAULT, typefaceStyle)
+                typeface = Typeface.create(bengaliTypeface, typefaceStyle)
                 isUnderlineText = element.isUnderline
             }
             val alignment = when (element.textAlign.uppercase()) {
@@ -246,7 +251,8 @@ class PdfBoxOverlayExportEngine(private val context: Context) {
                 .obtain(element.text, 0, element.text.length, paint, element.width.toInt().coerceAtLeast(1))
                 .setAlignment(alignment)
                 .setIncludePad(false)
-                .setBreakStrategy(Layout.BREAK_STRATEGY_SIMPLE)
+                .setBreakStrategy(Layout.BREAK_STRATEGY_HIGH_QUALITY)
+                .setTextDirection(android.text.TextDirectionHeuristics.FIRSTSTRONG_LTR)
                 .build()
             canvas.save()
             canvas.clipRect(0f, 0f, element.width, element.height)
