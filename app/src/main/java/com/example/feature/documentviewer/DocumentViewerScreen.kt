@@ -608,9 +608,9 @@ fun DocumentViewerScreen(
                         )
                         if (officeApplyTextStyle) {
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                FilterChip(officeTextBold, { officeTextBold = it }, label = { Text("Bold") })
-                                FilterChip(officeTextItalic, { officeTextItalic = it }, label = { Text("Italic") })
-                                FilterChip(officeTextUnderline, { officeTextUnderline = it }, label = { Text("Underline") })
+                                FilterChip(selected = officeTextBold, onClick = { officeTextBold = !officeTextBold }, label = { Text("Bold") })
+                                FilterChip(selected = officeTextItalic, onClick = { officeTextItalic = !officeTextItalic }, label = { Text("Italic") })
+                                FilterChip(selected = officeTextUnderline, onClick = { officeTextUnderline = !officeTextUnderline }, label = { Text("Underline") })
                             }
                             OutlinedTextField(
                                 value = officeTextSizePt,
@@ -665,7 +665,7 @@ fun DocumentViewerScreen(
                                     DocumentFormatType.PPTX -> officeEditingEngine.replacePptxText(
                                         documentUri, officeFindText, officeReplaceText,
                                         resolvedName.substringBeforeLast(".") + "_edited.pptx",
-                                        style = buildOfficeTextStyle()
+                                        style = if (officeApplyTextStyle) OfficeTextStyle(officeTextBold, officeTextItalic, officeTextUnderline, officeTextSizePt.toFloatOrNull(), officeTextColorHex, officeParagraphAlignment) else null
                                     )
                                     DocumentFormatType.XLSX -> {
                                         val edits = if (officeBulkEdits.isNotBlank()) {
