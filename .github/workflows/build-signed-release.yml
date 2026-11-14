@@ -70,7 +70,7 @@ jobs:
           test "$(stat -c%s app/src/main/assets/tessdata/eng.traineddata)" -eq 4113088
 
       - name: Run targeted native PDF text-edit unit tests
-        run: gradle --no-configuration-cache testDebugUnitTest --tests com.example.engine.pdfbox.PdfNativeTextEditEngineTest --tests com.example.engine.pdfbox.PdfBoxDocumentEngineTest --tests com.example.engine.pdfbox.PdfBoxOverlayExportEngineTest
+        run: gradle --no-configuration-cache testDebugUnitTest --tests com.example.engine.pdfbox.PdfNativeTextEditEngineTest --tests com.example.engine.pdfbox.PdfBoxDocumentEngineTest --tests com.example.engine.pdfbox.PdfBoxOverlayExportEngineTest --tests com.example.engine.pdfbox.PdfSignatureStampEngineTest
 
       - name: Build signed release APK after targeted PDF text-edit tests
         env:
