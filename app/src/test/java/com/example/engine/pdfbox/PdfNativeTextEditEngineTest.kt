@@ -103,6 +103,26 @@ class PdfNativeTextEditEngineTest {
     }
 
     @Test
+    fun rejectsBengaliReplacementBeforeEditingAndPreservesSource() = runBlocking {
+        val outputName = "native-bengali-rejected.pdf"
+        val outputFile = File(context.filesDir, "documents/$outputName")
+        outputFile.delete()
+        var rejected = false
+        try {
+            engine.replaceText(
+                Uri.fromFile(source), 0, "ABC", "বাংলা", outputName
+            )
+        } catch (_: IllegalArgumentException) {
+            rejected = true
+        }
+        assertTrue(rejected)
+        assertFalse(outputFile.exists())
+        PDDocument.load(source).use { original ->
+            assertTrue(PDFTextStripper().getText(original).contains("Start ABC End"))
+        }
+    }
+
+    @Test
     fun rejectsDifferentWidthReplacementWithoutChangingSource() = runBlocking {
         var rejected = false
         try {

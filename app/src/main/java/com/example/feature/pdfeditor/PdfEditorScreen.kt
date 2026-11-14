@@ -1015,6 +1015,7 @@ fun PdfEditorScreen(
                         modifier = Modifier.fillMaxWidth().testTag("editor_text_input")
                     )
 
+                    if (selectedWords.isEmpty() || isEditingExistingElement) {
                     // Font Size
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -1123,6 +1124,7 @@ fun PdfEditorScreen(
                                 label = { Text(label, style = MaterialTheme.typography.labelSmall) }
                             )
                         }
+                    }
                     }
                 }
             },
