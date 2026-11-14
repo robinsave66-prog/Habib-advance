@@ -364,6 +364,65 @@ class OfficeOpenXmlEditingEngineTest {
         }
     }
 
+    @Test fun xlsxAppliesNativeCellFontFillAndAlignmentStyle() {
+        val file = zip("office-format.xlsx", mapOf(
+            "xl/workbook.xml" to """<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Data" sheetId="1" r:id="rId7"/></sheets></workbook>""",
+            "xl/_rels/workbook.xml.rels" to """<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId7" Target="worksheets/sheet1.xml"/></Relationships>""",
+            "xl/worksheets/sheet1.xml" to """<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="A1"><v>12</v></c></row></sheetData></worksheet>""",
+            "xl/styles.xml" to "<styleSheet/>"
+        ))
+        val out = runBlocking {
+            engine.formatXlsxCell(Uri.fromFile(file), "Data", "A1",
+                XlsxCellFormat(bold = true, italic = true, fontSizePt = 14f,
+                    fontColorHex = "112233", fillColorHex = "AABBCC",
+                    horizontalAlignment = "CENTER", wrapText = true),
+                "formatted-cell.xlsx")
+        }
+        ZipFile(out).use { zip ->
+            val ns = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+            val sheet = DocumentBuilderFactory.newInstance().apply { isNamespaceAware = true }
+                .newDocumentBuilder().parse(zip.getInputStream(zip.getEntry("xl/worksheets/sheet1.xml")))
+            val cell = sheet.getElementsByTagNameNS(ns, "c").item(0) as org.w3c.dom.Element
+            assertEquals("1", cell.getAttribute("s"))
+            val styles = DocumentBuilderFactory.newInstance().apply { isNamespaceAware = true }
+                .newDocumentBuilder().parse(zip.getInputStream(zip.getEntry("xl/styles.xml")))
+            assertEquals("1", styles.getElementsByTagNameNS(ns, "b").length.toString())
+            assertEquals("CENTER", styles.getElementsByTagNameNS(ns, "alignment").item(0)
+                .let { (it as org.w3c.dom.Element).getAttribute("horizontal").uppercase() })
+            assertEquals("FF112233", (styles.getElementsByTagNameNS(ns, "color").item(0) as org.w3c.dom.Element).getAttribute("rgb"))
+        }
+    }
+
+    @Test fun docxCanEditIndividualTableCellWithoutFlatteningTable() {
+        val file = zip("table-cell.docx", mapOf(
+            "word/document.xml" to """<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:tbl><w:tr><w:tc><w:p><w:r><w:t>Old</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>Keep</w:t></w:r></w:p></w:tc></w:tr></w:tbl></w:body></w:document>"""
+        ))
+        val out = runBlocking { engine.setDocxTableCellText(Uri.fromFile(file), 0, 0, 0, "Updated", "table-cell-edited.docx") }
+        ZipFile(out).use { zip ->
+            val xml = zip.getInputStream(zip.getEntry("word/document.xml")).bufferedReader().readText()
+            assertTrue(xml.contains("Updated")); assertTrue(xml.contains("Keep")); assertFalse(xml.contains(">Old<"))
+            assertTrue(xml.contains("<w:tbl"))
+        }
+    }
+
+    @Test fun pptxCanMoveAndResizeNamedPictureOrShapeAndResizeSlideCanvas() {
+        val file = zip("ppt-layout.pptx", mapOf(
+            "ppt/slides/slide1.xml" to """<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="2" name="TitleBox"/></p:nvSpPr><p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="100" cy="100"/></a:xfrm></p:spPr></p:sp></p:spTree></p:cSld></p:sld>""",
+            "ppt/presentation.xml" to """<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:sldSz cx="9144000" cy="6858000"/></p:presentation>"""
+        ))
+        val moved = runBlocking {
+            engine.setPptxObjectGeometry(Uri.fromFile(file), 1, "TitleBox",
+                PptxObjectGeometry(1000, 2000, 3000, 4000), "ppt-object-moved.pptx")
+        }
+        val resized = runBlocking { engine.setPptxSlideSize(Uri.fromFile(moved), 8000000, 4500000, "ppt-slide-resized.pptx") }
+        ZipFile(resized).use { zip ->
+            val slide = zip.getInputStream(zip.getEntry("ppt/slides/slide1.xml")).bufferedReader().readText()
+            assertTrue(slide.contains("x=\\"1000\\" y=\\"2000\\"")); assertTrue(slide.contains("cx=\\"3000\\" cy=\\"4000\\""))
+            val presentation = zip.getInputStream(zip.getEntry("ppt/presentation.xml")).bufferedReader().readText()
+            assertTrue(presentation.contains("cx=\\"8000000\\" cy=\\"4500000\\""))
+        }
+    }
+
     private fun zip(name: String, entries: Map<String, String>): File {
         val file = File(context.cacheDir, name)
         ZipOutputStream(file.outputStream()).use { out ->

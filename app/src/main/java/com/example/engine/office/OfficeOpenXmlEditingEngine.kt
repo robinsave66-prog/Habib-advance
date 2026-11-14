@@ -38,6 +38,27 @@ data class OfficeTextStyle(
     val paragraphAlignment: String? = null
 )
 
+/** Native cell-level formatting options for an XLSX worksheet. */
+data class XlsxCellFormat(
+    val bold: Boolean = false,
+    val italic: Boolean = false,
+    val underline: Boolean = false,
+    val fontSizePt: Float = 11f,
+    val fontColorHex: String = "000000",
+    val fillColorHex: String? = null,
+    val horizontalAlignment: String = "GENERAL",
+    val verticalAlignment: String = "CENTER",
+    val wrapText: Boolean = false
+)
+
+/** Geometry uses PowerPoint EMUs (914400 EMUs per inch). */
+data class PptxObjectGeometry(
+    val x: Long,
+    val y: Long,
+    val width: Long,
+    val height: Long
+)
+
 /** Native Open XML package editing for DOCX, XLSX and PPTX. */
 class OfficeOpenXmlEditingEngine(private val context: Context) {
     suspend fun replaceDocxText(sourceUri: Uri, oldText: String, newText: String,
@@ -136,6 +157,224 @@ class OfficeOpenXmlEditingEngine(private val context: Context) {
             output.delete()
             throw error
         } finally { source.delete() }
+    }
+
+    /**
+     * Applies a new native cell style by creating a workbook style record and assigning
+     * its index to the selected cell. Existing styles are not overwritten.
+     */
+    suspend fun formatXlsxCell(sourceUri: Uri, sheetName: String, cellReference: String,
+        format: XlsxCellFormat, outputFileName: String = "Formatted_Workbook.xlsx"): File =
+        withContext(Dispatchers.IO) {
+            require(format.fontSizePt.isFinite() && format.fontSizePt in 1f..409f) {
+                "Excel font size must be between 1 and 409 points."
+            }
+            require(format.fontColorHex.matches(Regex("^[0-9A-Fa-f]{6}$"))) {
+                "Font color must be a six-digit RGB value."
+            }
+            require(format.fillColorHex == null || format.fillColorHex.matches(Regex("^[0-9A-Fa-f]{6}$"))) {
+                "Fill color must be a six-digit RGB value."
+            }
+            require(format.horizontalAlignment.uppercase() in setOf("GENERAL","LEFT","CENTER","RIGHT","FILL","JUSTIFY","CENTERCONTINUOUS","DISTRIBUTED")) {
+                "Unsupported horizontal alignment."
+            }
+            require(format.verticalAlignment.uppercase() in setOf("TOP","CENTER","BOTTOM","JUSTIFY","DISTRIBUTED")) {
+                "Unsupported vertical alignment."
+            }
+            val normalized = cellReference.uppercase()
+            require(Regex("^[A-Z]{1,3}[1-9][0-9]{0,6}$").matches(normalized) &&
+                columnIndex(normalized) in 1..16384 &&
+                normalized.filter { it.isDigit() }.toInt() in 1..1048576) {
+                "Cell reference is outside the Excel worksheet limits."
+            }
+            val source = copySource(sourceUri)
+            val output = outputFile(outputFileName, "xlsx")
+            try {
+                val worksheet = resolveSheet(source, sheetName)
+                var changedSheet = false
+                var changedStyles = false
+                var styleIndex = -1
+                rewriteZip(source, output) { name, bytes ->
+                    when (name) {
+                        "xl/styles.xml" -> {
+                            val xml = parse(bytes)
+                            styleIndex = appendXlsxStyle(xml, format)
+                            changedStyles = true
+                            serialize(xml)
+                        }
+                        worksheet -> {
+                            val xml = parse(bytes)
+                            val data = xml.getElementsByTagNameNS(SHEET_NS, "sheetData").item(0) as? Element
+                                ?: error("Worksheet sheetData is missing.")
+                            val row = findOrCreateRow(xml, data, normalized.filter { it.isDigit() }.toInt())
+                            val cells = (0 until row.childNodes.length).mapNotNull { row.childNodes.item(it) as? Element }
+                                .filter { it.localName == "c" }
+                            val cell = cells.firstOrNull { it.getAttribute("r") == normalized }
+                                ?: xml.createElementNS(SHEET_NS, "c").also { created ->
+                                    val next = cells.firstOrNull { columnIndex(it.getAttribute("r")) > columnIndex(normalized) }
+                                    if (next == null) row.appendChild(created) else row.insertBefore(created, next)
+                                }
+                            cell.setAttribute("r", normalized)
+                            cell.setAttribute("s", styleIndex.toString())
+                            changedSheet = true
+                            serialize(xml)
+                        }
+                        else -> bytes
+                    }
+                }
+                require(changedStyles && changedSheet) { "Workbook styles or worksheet part is missing." }
+                output
+            } catch (error: Exception) {
+                output.delete()
+                throw error
+            } finally { source.delete() }
+        }
+
+    private fun appendXlsxStyle(xml: Document, format: XlsxCellFormat): Int {
+        val ns = SHEET_NS
+        fun ensure(name: String): Element {
+            return (0 until xml.documentElement.childNodes.length)
+                .mapNotNull { xml.documentElement.childNodes.item(it) as? Element }
+                .firstOrNull { it.namespaceURI == ns && it.localName == name }
+                ?: xml.createElementNS(ns, name).also { xml.documentElement.appendChild(it) }
+        }
+        fun count(node: Element) {
+            node.setAttribute("count", (0 until node.childNodes.length)
+                .count { node.childNodes.item(it) is Element }.toString())
+        }
+        val fonts = ensure("fonts")
+        if ((0 until fonts.childNodes.length).none { fonts.childNodes.item(it) is Element }) {
+            val defaultFont = xml.createElementNS(ns, "font")
+            xml.createElementNS(ns, "sz").also { it.setAttribute("val", "11"); defaultFont.appendChild(it) }
+            xml.createElementNS(ns, "color").also { it.setAttribute("theme", "1"); defaultFont.appendChild(it) }
+            xml.createElementNS(ns, "name").also { it.setAttribute("val", "Calibri"); defaultFont.appendChild(it) }
+            fonts.appendChild(defaultFont); count(fonts)
+        }
+        val font = xml.createElementNS(ns, "font")
+        if (format.bold) font.appendChild(xml.createElementNS(ns, "b"))
+        if (format.italic) font.appendChild(xml.createElementNS(ns, "i"))
+        if (format.underline) font.appendChild(xml.createElementNS(ns, "u"))
+        xml.createElementNS(ns, "sz").also { it.setAttribute("val", format.fontSizePt.toString()); font.appendChild(it) }
+        xml.createElementNS(ns, "color").also { it.setAttribute("rgb", "FF" + format.fontColorHex.uppercase()); font.appendChild(it) }
+        xml.createElementNS(ns, "name").also { it.setAttribute("val", "Arial"); font.appendChild(it) }
+        fonts.appendChild(font); count(fonts)
+        val fills = ensure("fills")
+        var fillId = 0
+        if (format.fillColorHex != null) {
+            val fill = xml.createElementNS(ns, "fill")
+            val pattern = xml.createElementNS(ns, "patternFill")
+            pattern.setAttribute("patternType", "solid")
+            xml.createElementNS(ns, "fgColor").also { it.setAttribute("rgb", "FF" + format.fillColorHex.uppercase()); pattern.appendChild(it) }
+            xml.createElementNS(ns, "bgColor").also { it.setAttribute("indexed", "64"); pattern.appendChild(it) }
+            fill.appendChild(pattern); fills.appendChild(fill); count(fills)
+            fillId = (0 until fills.childNodes.length).count { fills.childNodes.item(it) is Element } - 1
+        }
+        val cellXfs = ensure("cellXfs")
+        if ((0 until cellXfs.childNodes.length).none { cellXfs.childNodes.item(it) is Element }) {
+            val defaultXf = xml.createElementNS(ns, "xf")
+            defaultXf.setAttribute("numFmtId", "0"); defaultXf.setAttribute("fontId", "0")
+            defaultXf.setAttribute("fillId", "0"); defaultXf.setAttribute("borderId", "0")
+            cellXfs.appendChild(defaultXf); count(cellXfs)
+        }
+        val index = (0 until cellXfs.childNodes.length).count { cellXfs.childNodes.item(it) is Element }
+        val xf = xml.createElementNS(ns, "xf")
+        xf.setAttribute("numFmtId", "0")
+        xf.setAttribute("fontId", ((0 until fonts.childNodes.length).count { fonts.childNodes.item(it) is Element } - 1).toString())
+        xf.setAttribute("fillId", fillId.toString())
+        xf.setAttribute("borderId", "0")
+        xf.setAttribute("xfId", "0")
+        xf.setAttribute("applyFont", "1")
+        if (format.fillColorHex != null) xf.setAttribute("applyFill", "1")
+        val alignment = xml.createElementNS(ns, "alignment")
+        alignment.setAttribute("horizontal", format.horizontalAlignment.lowercase())
+        alignment.setAttribute("vertical", format.verticalAlignment.lowercase())
+        if (format.wrapText) alignment.setAttribute("wrapText", "1")
+        xf.appendChild(alignment)
+        xf.setAttribute("applyAlignment", "1")
+        cellXfs.appendChild(xf); count(cellXfs)
+        return index
+    }
+
+    /** Replaces the contents of a specific DOCX table cell without flattening the table. */
+    suspend fun setDocxTableCellText(sourceUri: Uri, tableIndex: Int, rowIndex: Int, cellIndex: Int,
+        text: String, outputFileName: String = "Edited_Table.docx"): File = withContext(Dispatchers.IO) {
+        require(tableIndex >= 0 && rowIndex >= 0 && cellIndex >= 0) { "Table, row and cell indexes must be zero or greater." }
+        editTextPackage(sourceUri, outputFileName, "docx") { name, bytes ->
+            if (name != "word/document.xml") bytes else {
+                val xml = parse(bytes)
+                val tables = xml.getElementsByTagNameNS(WORD_NS, "tbl")
+                require(tableIndex < tables.length) { "The selected DOCX table does not exist." }
+                val rows = (0 until (tables.item(tableIndex) as Element).getElementsByTagNameNS(WORD_NS, "tr").length)
+                    .map { (tables.item(tableIndex) as Element).getElementsByTagNameNS(WORD_NS, "tr").item(it) as Element }
+                require(rowIndex < rows.size) { "The selected table row does not exist." }
+                val cells = rows[rowIndex].getElementsByTagNameNS(WORD_NS, "tc")
+                require(cellIndex < cells.length) { "The selected table cell does not exist." }
+                val cell = cells.item(cellIndex) as Element
+                val textNodes = cell.getElementsByTagNameNS(WORD_NS, "t")
+                if (textNodes.length == 0) {
+                    val paragraph = cell.getElementsByTagNameNS(WORD_NS, "p").item(0) as? Element
+                        ?: xml.createElementNS(WORD_NS, "w:p").also { cell.appendChild(it) }
+                    val run = xml.createElementNS(WORD_NS, "w:r")
+                    xml.createElementNS(WORD_NS, "w:t").also { it.textContent = text; run.appendChild(it) }
+                    paragraph.appendChild(run)
+                } else {
+                    textNodes.item(0).textContent = text
+                    for (i in 1 until textNodes.length) textNodes.item(i).textContent = ""
+                }
+                serialize(xml)
+            }
+        }
+    }
+
+    /** Moves/resizes a named PowerPoint shape or picture while retaining its content and effects. */
+    suspend fun setPptxObjectGeometry(sourceUri: Uri, slideNumber: Int, objectName: String,
+        geometry: PptxObjectGeometry, outputFileName: String = "Edited_Layout.pptx"): File =
+        withContext(Dispatchers.IO) {
+            require(slideNumber >= 1 && objectName.isNotBlank()) { "Select a valid slide and named object." }
+            require(geometry.x >= 0 && geometry.y >= 0 && geometry.width > 0 && geometry.height > 0) {
+                "Object position must be non-negative and size must be greater than zero."
+            }
+            editTextPackage(sourceUri, outputFileName, "pptx") { name, bytes ->
+                if (name != "ppt/slides/slide$slideNumber.xml") bytes else {
+                    val xml = parse(bytes)
+                    val names = xml.getElementsByTagNameNS("http://schemas.openxmlformats.org/presentationml/2006/main", "cNvPr")
+                    val target = (0 until names.length).map { names.item(it) as Element }
+                        .firstOrNull { it.getAttribute("name") == objectName }
+                        ?: throw IllegalArgumentException("PowerPoint object '$objectName' was not found on slide $slideNumber.")
+                    var ancestor: org.w3c.dom.Node? = target.parentNode
+                    var transform: Element? = null
+                    while (ancestor != null && transform == null) {
+                        if (ancestor is Element) {
+                            transform = (ancestor as Element).getElementsByTagNameNS(DRAWING_NS, "xfrm")
+                                .item(0) as? Element
+                        }
+                        ancestor = ancestor.parentNode
+                    }
+                    val xfrm = transform ?: throw IllegalArgumentException("Selected object has no editable transform.")
+                    val off = (0 until xfrm.childNodes.length).mapNotNull { xfrm.childNodes.item(it) as? Element }
+                        .firstOrNull { it.localName == "off" } ?: throw IllegalArgumentException("Object position is missing.")
+                    val ext = (0 until xfrm.childNodes.length).mapNotNull { xfrm.childNodes.item(it) as? Element }
+                        .firstOrNull { it.localName == "ext" } ?: throw IllegalArgumentException("Object size is missing.")
+                    off.setAttribute("x", geometry.x.toString()); off.setAttribute("y", geometry.y.toString())
+                    ext.setAttribute("cx", geometry.width.toString()); ext.setAttribute("cy", geometry.height.toString())
+                    serialize(xml)
+                }
+            }
+        }
+
+    /** Changes the physical slide canvas size while keeping all existing objects intact. */
+    suspend fun setPptxSlideSize(sourceUri: Uri, widthEmu: Long, heightEmu: Long,
+        outputFileName: String = "Resized_Slides.pptx"): File = withContext(Dispatchers.IO) {
+        require(widthEmu > 0 && heightEmu > 0) { "Slide dimensions must be greater than zero." }
+        editTextPackage(sourceUri, outputFileName, "pptx") { name, bytes ->
+            if (name != "ppt/presentation.xml") bytes else {
+                val xml = parse(bytes)
+                val size = xml.getElementsByTagNameNS("http://schemas.openxmlformats.org/presentationml/2006/main", "sldSz").item(0) as? Element
+                    ?: throw IllegalArgumentException("Presentation slide size is missing.")
+                size.setAttribute("cx", widthEmu.toString()); size.setAttribute("cy", heightEmu.toString())
+                serialize(xml)
+            }
+        }
     }
 
     /**

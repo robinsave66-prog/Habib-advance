@@ -61,6 +61,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
 import com.example.engine.office.OfficeOpenXmlEditingEngine
 import com.example.engine.office.XlsxCellEdit
+import com.example.engine.office.XlsxCellFormat
+import com.example.engine.office.PptxObjectGeometry
 import com.example.engine.office.OfficeTextStyle
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -212,6 +214,23 @@ fun DocumentViewerScreen(
     var officeTextSizePt by remember { mutableStateOf("12") }
     var officeTextColorHex by remember { mutableStateOf("000000") }
     var officeParagraphAlignment by remember { mutableStateOf("LEFT") }
+    var officeFormatCell by remember { mutableStateOf(false) }
+    var officeFillColorHex by remember { mutableStateOf("FFFFFF") }
+    var officeTextApplyWrap by remember { mutableStateOf(false) }
+    var officeEditTableCell by remember { mutableStateOf(false) }
+    var officeTableIndex by remember { mutableStateOf("0") }
+    var officeTableRow by remember { mutableStateOf("0") }
+    var officeTableCell by remember { mutableStateOf("0") }
+    var officeEditPptxGeometry by remember { mutableStateOf(false) }
+    var officePptxObjectName by remember { mutableStateOf("") }
+    var officePptxSlideNumber by remember { mutableStateOf("1") }
+    var officePptxX by remember { mutableStateOf("0") }
+    var officePptxY by remember { mutableStateOf("0") }
+    var officePptxWidth by remember { mutableStateOf("914400") }
+    var officePptxHeight by remember { mutableStateOf("514350") }
+    var officeResizeSlides by remember { mutableStateOf(false) }
+    var officeSlideWidth by remember { mutableStateOf("9144000") }
+    var officeSlideHeight by remember { mutableStateOf("5143500") }
     var pendingOfficeOutput by remember { mutableStateOf<File?>(null) }
     val officeEditingEngine = remember(context) { OfficeOpenXmlEditingEngine(context) }
 
@@ -332,6 +351,10 @@ fun DocumentViewerScreen(
                                     officeTextSizePt = "12"
                                     officeTextColorHex = "000000"
                                     officeParagraphAlignment = "LEFT"
+                                    officeFormatCell = false
+                                    officeEditTableCell = false
+                                    officeEditPptxGeometry = false
+                                    officeResizeSlides = false
                                     showOfficeEditDialog = true
                                 },
                                 enabled = !isOfficeEditing,
@@ -587,6 +610,23 @@ fun DocumentViewerScreen(
                             minLines = 3,
                             supportingText = { Text("Use one cell per line. Start the value with = to enter a formula.") }
                         )
+                        FilterChip(selected = officeFormatCell, onClick = { officeFormatCell = !officeFormatCell }, label = { Text("Format selected cell") })
+                        if (officeFormatCell) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                FilterChip(selected = officeTextBold, onClick = { officeTextBold = !officeTextBold }, label = { Text("Bold") })
+                                FilterChip(selected = officeTextItalic, onClick = { officeTextItalic = !officeTextItalic }, label = { Text("Italic") })
+                                FilterChip(selected = officeTextUnderline, onClick = { officeTextUnderline = !officeTextUnderline }, label = { Text("Underline") })
+                                FilterChip(selected = officeTextApplyWrap, onClick = { officeTextApplyWrap = !officeTextApplyWrap }, label = { Text("Wrap") })
+                            }
+                            OutlinedTextField(value = officeTextSizePt, onValueChange = { officeTextSizePt = it.filter { ch -> ch.isDigit() || ch == '.' }.take(6) }, label = { Text("Font size (pt)") }, singleLine = true)
+                            OutlinedTextField(value = officeTextColorHex, onValueChange = { officeTextColorHex = it.filter { ch -> ch.isLetterOrDigit() }.take(6).uppercase() }, label = { Text("Font color (RGB hex)") }, singleLine = true)
+                            OutlinedTextField(value = officeFillColorHex, onValueChange = { officeFillColorHex = it.filter { ch -> ch.isLetterOrDigit() }.take(6).uppercase() }, label = { Text("Cell fill color (RGB hex)") }, singleLine = true)
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                listOf("LEFT", "CENTER", "RIGHT").forEach { alignment ->
+                                    FilterChip(selected = officeParagraphAlignment == alignment, onClick = { officeParagraphAlignment = alignment }, label = { Text(alignment) })
+                                }
+                            }
+                        }
                     } else {
                         OutlinedTextField(
                             value = officeFindText,
@@ -600,6 +640,30 @@ fun DocumentViewerScreen(
                             label = { Text("Replace with") },
                             minLines = 1
                         )
+                        if (formatType == DocumentFormatType.DOCX) {
+                            FilterChip(selected = officeEditTableCell, onClick = { officeEditTableCell = !officeEditTableCell }, label = { Text("Edit Word table cell") })
+                            if (officeEditTableCell) {
+                                OutlinedTextField(value = officeTableIndex, onValueChange = { officeTableIndex = it.filter(Char::isDigit) }, label = { Text("Table index (0-based)") }, singleLine = true)
+                                OutlinedTextField(value = officeTableRow, onValueChange = { officeTableRow = it.filter(Char::isDigit) }, label = { Text("Row index (0-based)") }, singleLine = true)
+                                OutlinedTextField(value = officeTableCell, onValueChange = { officeTableCell = it.filter(Char::isDigit) }, label = { Text("Cell index (0-based)") }, singleLine = true)
+                            }
+                        }
+                        if (formatType == DocumentFormatType.PPTX) {
+                            FilterChip(selected = officeEditPptxGeometry, onClick = { officeEditPptxGeometry = !officeEditPptxGeometry }, label = { Text("Move / resize named shape or picture") })
+                            FilterChip(selected = officeResizeSlides, onClick = { officeResizeSlides = !officeResizeSlides }, label = { Text("Change slide canvas size") })
+                            if (officeEditPptxGeometry) {
+                                OutlinedTextField(value = officePptxSlideNumber, onValueChange = { officePptxSlideNumber = it.filter(Char::isDigit) }, label = { Text("Slide number") }, singleLine = true)
+                                OutlinedTextField(value = officePptxObjectName, onValueChange = { officePptxObjectName = it }, label = { Text("Object name (Selection Pane)") }, singleLine = true)
+                                OutlinedTextField(value = officePptxX, onValueChange = { officePptxX = it.filter(Char::isDigit) }, label = { Text("X position (EMU)") }, singleLine = true)
+                                OutlinedTextField(value = officePptxY, onValueChange = { officePptxY = it.filter(Char::isDigit) }, label = { Text("Y position (EMU)") }, singleLine = true)
+                                OutlinedTextField(value = officePptxWidth, onValueChange = { officePptxWidth = it.filter(Char::isDigit) }, label = { Text("Width (EMU)") }, singleLine = true)
+                                OutlinedTextField(value = officePptxHeight, onValueChange = { officePptxHeight = it.filter(Char::isDigit) }, label = { Text("Height (EMU)") }, singleLine = true)
+                            }
+                            if (officeResizeSlides) {
+                                OutlinedTextField(value = officeSlideWidth, onValueChange = { officeSlideWidth = it.filter(Char::isDigit) }, label = { Text("Slide width (EMU)") }, singleLine = true)
+                                OutlinedTextField(value = officeSlideHeight, onValueChange = { officeSlideHeight = it.filter(Char::isDigit) }, label = { Text("Slide height (EMU)") }, singleLine = true)
+                            }
+                        }
                         FilterChip(
                             selected = officeApplyTextStyle,
                             onClick = { officeApplyTextStyle = !officeApplyTextStyle },
@@ -638,7 +702,7 @@ fun DocumentViewerScreen(
                         }
                     }
                     Text(
-                        text = "This applies native Open XML text/cell edits and preserves unrelated package parts. Excel formulas are stored but recalculated by a compatible spreadsheet app when opened; full layout editing is not yet available.",
+                        text = "This applies native Open XML text/cell edits and preserves unrelated package parts. Excel formulas are recalculated by compatible spreadsheet software when opened. Word table cells and PowerPoint object geometry are editable through the controls above.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -648,25 +712,54 @@ fun DocumentViewerScreen(
                 TextButton(
                     enabled = !isOfficeEditing && if (formatType == DocumentFormatType.XLSX) {
                         officeSheetName.isNotBlank() && (
+                            officeFormatCell ||
                             officeBulkEdits.isNotBlank() ||
                             (officeCellReference.isNotBlank() && (officeFormula.isNotBlank() || officeCellValue.isNotBlank()))
                         )
+                    } else if (formatType == DocumentFormatType.DOCX && officeEditTableCell) {
+                        officeReplaceText.isNotBlank()
+                    } else if (formatType == DocumentFormatType.PPTX && (officeEditPptxGeometry || officeResizeSlides)) {
+                        (!officeEditPptxGeometry || officePptxObjectName.isNotBlank()) &&
+                            (!officeResizeSlides || (officeSlideWidth.toLongOrNull() ?: 0L) > 0L && (officeSlideHeight.toLongOrNull() ?: 0L) > 0L)
                     } else officeFindText.isNotBlank(),
                     onClick = {
                         isOfficeEditing = true
                         scope.launch {
                             try {
                                 val output = when (formatType) {
-                                    DocumentFormatType.DOCX -> officeEditingEngine.replaceDocxText(
+                                    DocumentFormatType.DOCX -> if (officeEditTableCell) {
+                                        officeEditingEngine.setDocxTableCellText(
+                                            documentUri, officeTableIndex.toInt(), officeTableRow.toInt(), officeTableCell.toInt(),
+                                            officeReplaceText, resolvedName.substringBeforeLast(".") + "_table_edited.docx"
+                                        )
+                                    } else officeEditingEngine.replaceDocxText(
                                         documentUri, officeFindText, officeReplaceText,
                                         resolvedName.substringBeforeLast(".") + "_edited.docx",
                                         style = if (officeApplyTextStyle) OfficeTextStyle(officeTextBold, officeTextItalic, officeTextUnderline, officeTextSizePt.toFloatOrNull(), officeTextColorHex, officeParagraphAlignment) else null
                                     )
-                                    DocumentFormatType.PPTX -> officeEditingEngine.replacePptxText(
-                                        documentUri, officeFindText, officeReplaceText,
-                                        resolvedName.substringBeforeLast(".") + "_edited.pptx",
-                                        style = if (officeApplyTextStyle) OfficeTextStyle(officeTextBold, officeTextItalic, officeTextUnderline, officeTextSizePt.toFloatOrNull(), officeTextColorHex, officeParagraphAlignment) else null
-                                    )
+                                    DocumentFormatType.PPTX -> {
+                                        var baseUri = documentUri
+                                        var generated: File? = null
+                                        if (officeEditPptxGeometry) {
+                                            generated = officeEditingEngine.setPptxObjectGeometry(
+                                                baseUri, officePptxSlideNumber.toInt(), officePptxObjectName,
+                                                PptxObjectGeometry(officePptxX.toLong(), officePptxY.toLong(), officePptxWidth.toLong(), officePptxHeight.toLong()),
+                                                resolvedName.substringBeforeLast(".") + "_object_edited.pptx"
+                                            )
+                                            baseUri = Uri.fromFile(generated)
+                                        }
+                                        if (officeResizeSlides) {
+                                            generated = officeEditingEngine.setPptxSlideSize(
+                                                baseUri, officeSlideWidth.toLong(), officeSlideHeight.toLong(),
+                                                resolvedName.substringBeforeLast(".") + "_slides_resized.pptx"
+                                            )
+                                        }
+                                        generated ?: officeEditingEngine.replacePptxText(
+                                            documentUri, officeFindText, officeReplaceText,
+                                            resolvedName.substringBeforeLast(".") + "_edited.pptx",
+                                            style = if (officeApplyTextStyle) OfficeTextStyle(officeTextBold, officeTextItalic, officeTextUnderline, officeTextSizePt.toFloatOrNull(), officeTextColorHex, officeParagraphAlignment) else null
+                                        )
+                                    }
                                     DocumentFormatType.XLSX -> {
                                         val edits = if (officeBulkEdits.isNotBlank()) {
                                             officeBulkEdits.lineSequence().map { it.trim() }
@@ -685,10 +778,28 @@ fun DocumentViewerScreen(
                                         } else {
                                             listOf(XlsxCellEdit(officeCellReference, officeCellValue, officeFormula.ifBlank { null }))
                                         }
-                                        officeEditingEngine.setXlsxCellValues(
-                                            documentUri, officeSheetName, edits,
-                                            resolvedName.substringBeforeLast(".") + "_edited.xlsx"
-                                        )
+                                        var generated: File? = null
+                                        if (officeBulkEdits.isNotBlank() || officeCellValue.isNotBlank() || officeFormula.isNotBlank()) {
+                                            generated = officeEditingEngine.setXlsxCellValues(
+                                                documentUri, officeSheetName, edits,
+                                                resolvedName.substringBeforeLast(".") + "_edited.xlsx"
+                                            )
+                                        }
+                                        if (officeFormatCell) {
+                                            officeEditingEngine.formatXlsxCell(
+                                                generated?.let { Uri.fromFile(it) } ?: documentUri,
+                                                officeSheetName, officeCellReference,
+                                                XlsxCellFormat(
+                                                    bold = officeTextBold, italic = officeTextItalic, underline = officeTextUnderline,
+                                                    fontSizePt = officeTextSizePt.toFloatOrNull() ?: 11f,
+                                                    fontColorHex = officeTextColorHex,
+                                                    fillColorHex = officeFillColorHex,
+                                                    horizontalAlignment = officeParagraphAlignment,
+                                                    wrapText = officeTextApplyWrap
+                                                ),
+                                                resolvedName.substringBeforeLast(".") + "_formatted.xlsx"
+                                            )
+                                        } else generated ?: throw IllegalArgumentException("Enter cell data or enable cell formatting.")
                                     }
                                     else -> throw IllegalArgumentException("This Office format is not editable.")
                                 }
