@@ -103,6 +103,36 @@ class PdfNativeTextEditEngineTest {
     }
 
 
+
+    @Test
+    fun replacesPhraseSplitAcrossAdjacentTjStrings() = runBlocking {
+        val splitSource = File(context.cacheDir, "native-text-edit-split-tj.pdf")
+        PDDocument().use { document ->
+            val page = PDPage(PDRectangle(420f, 600f))
+            document.addPage(page)
+            PDPageContentStream(document, page).use { stream ->
+                stream.beginText()
+                stream.setFont(PDType1Font.HELVETICA, 12f)
+                stream.newLineAtOffset(40f, 540f)
+                stream.showTextWithPositioning(arrayOf<Any>("Start A", "BC End"))
+                stream.endText()
+            }
+            document.save(splitSource)
+        }
+
+        val output = engine.replaceText(
+            Uri.fromFile(splitSource), 0, "ABC", "BCA", "native-split-tj.pdf"
+        )
+        PDDocument.load(output).use { edited ->
+            val text = PDFTextStripper().getText(edited)
+            assertTrue(text.contains("Start BCA End"))
+            assertFalse(text.contains("Start ABC End"))
+        }
+        PDDocument.load(splitSource).use { original ->
+            assertTrue(PDFTextStripper().getText(original).contains("Start ABC End"))
+        }
+    }
+
     @Test
     fun replacesLatinTextWithAccentedLatinCharacterWhenFontHasMatchingAdvance() = runBlocking {
         val output = engine.replaceText(

@@ -22,10 +22,10 @@ import java.io.FileOutputStream
 /**
  * Conservative native PDF text replacement.
  *
- * This edits the original Tj/TJ string operand in the page content stream. It deliberately
- * supports only a unique, printable-ASCII match contained in one text-show string, encoded
- * by the active page font, with exactly the same glyph advance width. Replacement character
- * count may differ when the rendered advance remains identical.
+ * This edits the original Tj/TJ string operand in the page content stream. It supports a
+ * unique simple-Latin match in a Tj string or across adjacent strings within one TJ array,
+ * encoded by the active page font, with exactly the same glyph advance width. Replacement
+ * character count may differ when the rendered advance remains identical.
  * Unsupported layouts are rejected instead of being covered with a white rectangle or
  * silently shifting the rest of the page.
  *
@@ -70,10 +70,9 @@ class PdfNativeTextEditEngine(private val context: Context) {
                 var wordSpacing = 0f
                 var replacements = 0
 
-                fun replaceOperand(original: COSString): COSString {
-                    val decoded = original.string
+                fun replaceOperand(decoded: String): COSString? {
                     val first = decoded.indexOf(oldText)
-                    if (first < 0) return original
+                    if (first < 0) return null
                     val font = activeFont
                         ?: throw IllegalArgumentException("The selected text has no supported active PDF font.")
                     require(activeFontSize > 0f) { "The selected text has an invalid font size." }
@@ -117,17 +116,36 @@ class PdfNativeTextEditEngine(private val context: Context) {
                                 val operandIndex = index - 1
                                 val string = tokens.getOrNull(operandIndex) as? COSString
                                 if (string != null) {
-                                    tokens[operandIndex] = replaceOperand(string)
+                                    replaceOperand(string.string)?.let { tokens[operandIndex] = it }
                                 }
                             }
                             "TJ" -> {
                                 val operandIndex = index - 1
                                 val array = tokens.getOrNull(operandIndex) as? COSArray
                                 if (array != null) {
-                                    for (itemIndex in 0 until array.size()) {
-                                        val string = array.getObject(itemIndex) as? COSString ?: continue
-                                        val updated = replaceOperand(string)
-                                        if (updated !== string) array.set(itemIndex, updated)
+                                    var itemIndex = 0
+                                    while (itemIndex < array.size()) {
+                                        if (array.getObject(itemIndex) !is COSString) {
+                                            itemIndex++
+                                            continue
+                                        }
+                                        val groupStart = itemIndex
+                                        val combined = StringBuilder()
+                                        while (itemIndex < array.size()) {
+                                            val part = array.getObject(itemIndex) as? COSString ?: break
+                                            combined.append(part.string)
+                                            itemIndex++
+                                        }
+                                        val updated = replaceOperand(combined.toString())
+                                        if (updated != null) {
+                                            // Adjacent strings have no TJ numeric kerning between them.
+                                            // Store the replacement in the first slot and leave empty
+                                            // strings in the remaining slots to preserve array indexing.
+                                            array.set(groupStart, updated)
+                                            for (emptyIndex in groupStart + 1 until itemIndex) {
+                                                array.set(emptyIndex, COSString(ByteArray(0)))
+                                            }
+                                        }
                                     }
                                 }
                             }
