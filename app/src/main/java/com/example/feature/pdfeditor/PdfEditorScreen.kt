@@ -1032,7 +1032,7 @@ fun PdfEditorScreen(
                             shape = RoundedCornerShape(8.dp)
                         ) {
                             Text(
-                                "This edits the original PDF text object only when the selected printable ASCII text is uniquely found in one text-show operation and the replacement preserves its exact text advance. Unsupported text, including Bengali, may be rejected without changing the source. Original font, size and color are preserved; the styling controls below apply only to new text overlays.",
+                                "This edits the original PDF text object only when the selected printable ASCII text is uniquely found in one text-show operation and the replacement preserves its exact text advance. Unsupported text, including Bengali, may be rejected without changing the source. Native replacement preserves the original font, size and color. The styling controls below are used by the 'Redact and Replace' alternative and new text overlays.",
                                 modifier = Modifier.padding(12.dp),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onErrorContainer
@@ -1057,7 +1057,6 @@ fun PdfEditorScreen(
                         }
                     }
 
-                    if (selectedWords.isEmpty() || isEditingExistingElement) {
                     // Font Size
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -1166,7 +1165,6 @@ fun PdfEditorScreen(
                                 label = { Text(label, style = MaterialTheme.typography.labelSmall) }
                             )
                         }
-                    }
                     }
                 }
             },
