@@ -425,6 +425,72 @@ class OfficeOpenXmlEditingEngineTest {
         }
     }
 
+    @Test fun docxCanResizeAndRepositionFloatingPictureByName() {
+        val file = zip("docx-image-layout.docx", mapOf(
+            "word/document.xml" to """<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"><w:body><w:p><w:r><w:drawing><wp:anchor><wp:positionH relativeFrom="page"><wp:posOffset>0</wp:posOffset></wp:positionH><wp:positionV relativeFrom="page"><wp:posOffset>0</wp:posOffset></wp:positionV><wp:extent cx="100" cy="100"/><wp:docPr id="1" name="Picture 1"/></wp:anchor></w:drawing></w:r></w:p></w:body></w:document>"""
+        ))
+        val out = runBlocking {
+            engine.setDocxImageGeometry(Uri.fromFile(file), "Picture 1",
+                DocxImageGeometry(1000, 2000, 3000, 4000), "docx-image-layout-edited.docx")
+        }
+        ZipFile(out).use { zip ->
+            val xml = zip.getInputStream(zip.getEntry("word/document.xml")).bufferedReader().readText()
+            assertTrue(xml.contains("<wp:posOffset>1000</wp:posOffset>"))
+            assertTrue(xml.contains("<wp:posOffset>2000</wp:posOffset>"))
+            assertTrue(Regex("cx=.3000. cy=.4000.").containsMatchIn(xml))
+        }
+    }
+
+    @Test fun docxCanFormatTableCellTextAlignmentAndFill() {
+        val file = zip("docx-table-style.docx", mapOf(
+            "word/document.xml" to """<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:tbl><w:tr><w:tc><w:tcPr/><w:p><w:r><w:t>Cell</w:t></w:r></w:p></w:tc></w:tr></w:tbl></w:body></w:document>"""
+        ))
+        val out = runBlocking {
+            engine.formatDocxTableCell(Uri.fromFile(file), 0, 0, 0,
+                OfficeTextStyle(true, true, true, 14f, "112233", "CENTER"),
+                "AABBCC", "docx-table-style-edited.docx")
+        }
+        ZipFile(out).use { zip ->
+            val xml = zip.getInputStream(zip.getEntry("word/document.xml")).bufferedReader().readText()
+            assertTrue(xml.contains("""w:fill="AABBCC""""))
+            assertTrue(xml.contains("""w:val="CENTER""""))
+            assertTrue(xml.contains("""w:val="112233""""))
+            assertTrue(xml.contains("""w:val="28""""))
+            assertTrue(xml.contains("<w:b")); assertTrue(xml.contains("<w:i")); assertTrue(xml.contains("<w:u"))
+        }
+    }
+
+    @Test fun xlsxCanSetRowHeightAndColumnWidthWithoutChangingCellValues() {
+        val file = zip("xlsx-dimensions.xlsx", mapOf(
+            "xl/workbook.xml" to """<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Data" sheetId="1" r:id="rId7"/></sheets></workbook>""",
+            "xl/_rels/workbook.xml.rels" to """<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId7" Target="worksheets/sheet1.xml"/></Relationships>""",
+            "xl/worksheets/sheet1.xml" to """<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="A1"><v>12</v></c></row></sheetData></worksheet>"""
+        ))
+        val rowSized = runBlocking { engine.setXlsxRowHeight(Uri.fromFile(file), "Data", 1, 32f, "xlsx-row-sized.xlsx") }
+        val out = runBlocking { engine.setXlsxColumnWidth(Uri.fromFile(rowSized), "Data", "B", 24f, "xlsx-column-sized.xlsx") }
+        ZipFile(out).use { zip ->
+            val xml = zip.getInputStream(zip.getEntry("xl/worksheets/sheet1.xml")).bufferedReader().readText()
+            assertTrue(xml.contains("""ht="32.0" customHeight="1""""))
+            assertTrue(xml.contains("""min="2" max="2" width="24.0" customWidth="1""""))
+            assertTrue(xml.contains("<v>12</v>"))
+        }
+    }
+
+    @Test fun pptxCanChangeNativeShapeFillAndOutlineColors() {
+        val file = zip("ppt-shape-style.pptx", mapOf(
+            "ppt/slides/slide1.xml" to """<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="2" name="Box"/></p:nvSpPr><p:spPr><a:xfrm/><a:prstGeom prst="rect"/></p:spPr></p:sp></p:spTree></p:cSld></p:sld>"""
+        ))
+        val out = runBlocking {
+            engine.setPptxShapeStyle(Uri.fromFile(file), 1, "Box",
+                PptxShapeStyle("112233", "AABBCC"), "ppt-shape-style-edited.pptx")
+        }
+        ZipFile(out).use { zip ->
+            val xml = zip.getInputStream(zip.getEntry("ppt/slides/slide1.xml")).bufferedReader().readText()
+            assertTrue(xml.contains("""<a:srgbClr val="112233""""))
+            assertTrue(xml.contains("""<a:srgbClr val="AABBCC""""))
+        }
+    }
+
     private fun zip(name: String, entries: Map<String, String>): File {
         val file = File(context.cacheDir, name)
         ZipOutputStream(file.outputStream()).use { out ->
