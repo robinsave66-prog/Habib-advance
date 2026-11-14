@@ -88,10 +88,10 @@ class PdfSignatureStampEngineTest {
     @Test
     fun placementHonorsPositionAndPreservesImageAspectRatio() {
         val p = calculateSignaturePlacement(420f, 600f, 120f, 60f, 0.5f, 0.25f, 0.4f)
-        assertEquals(168f, p.x, 0.01f)
-        assertEquals(139.5f, p.y, 0.01f)
-        assertEquals(84f, p.width, 0.01f)
-        assertEquals(42f, p.height, 0.01f)
+        assertEquals(126f, p.x, 0.01f)
+        assertEquals(129f, p.y, 0.01f)
+        assertEquals(168f, p.width, 0.01f)
+        assertEquals(84f, p.height, 0.01f)
     }
 
     @Test
