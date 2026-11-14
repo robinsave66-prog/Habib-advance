@@ -45,7 +45,7 @@ class PdfNativeTextEditEngine(private val context: Context) {
         require(oldText.isNotBlank()) { "Select some existing PDF text first." }
         require(newText.isNotEmpty()) { "Replacement text cannot be empty." }
         require(isSupportedSimpleText(oldText) && isSupportedSimpleText(newText)) {
-            "This first native-edit mode supports printable English/ASCII text only. Bengali PDF text editing is not supported yet."
+            "This native-edit mode supports simple Latin text and punctuation only. Bengali and complex-script PDF text editing are not supported yet."
         }
 
         PDFBoxResourceLoader.init(context)
@@ -83,7 +83,7 @@ class PdfNativeTextEditEngine(private val context: Context) {
                     // Include Tc and Tw in the horizontal text advance.
                     fun textAdvance(value: String): Float {
                         val glyphAdvance = font.getStringWidth(value) * activeFontSize / 1000f
-                        val characterAdvance = characterSpacing * value.length
+                        val characterAdvance = characterSpacing * value.codePointCount(0, value.length)
                         val wordAdvance = if (font is PDType0Font) 0f
                             else wordSpacing * value.count { it == ' ' }
                         return glyphAdvance + characterAdvance + wordAdvance
@@ -158,8 +158,19 @@ class PdfNativeTextEditEngine(private val context: Context) {
         }
     }
 
-    private fun isSupportedSimpleText(value: String): Boolean =
-        value.all { it.code in 0x20..0x7E }
+    private fun isSupportedSimpleText(value: String): Boolean {
+        if (value.isEmpty()) return false
+        var offset = 0
+        while (offset < value.length) {
+            val codePoint = value.codePointAt(offset)
+            val supported = codePoint in 0x20..0x7E ||
+                codePoint in 0x00A0..0x024F ||
+                codePoint in 0x2000..0x206F
+            if (!supported) return false
+            offset += Character.charCount(codePoint)
+        }
+        return true
+    }
 
     private fun createOutputFile(fileName: String): File {
         val directory = File(context.filesDir, "documents").apply { if (!exists()) mkdirs() }

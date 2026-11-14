@@ -102,6 +102,20 @@ class PdfNativeTextEditEngineTest {
         PDDocument.load(output).use { assertTrue(PDFTextStripper().getText(it).contains("AB")) }
     }
 
+
+    @Test
+    fun replacesLatinTextWithCurlyApostropheWhenFontCanEncodeIt() = runBlocking {
+        val output = engine.replaceText(
+            Uri.fromFile(source), 0, "ABC", "A’C", "native-smart-punctuation.pdf"
+        )
+        PDDocument.load(output).use { edited ->
+            assertTrue(PDFTextStripper().getText(edited).contains("A’C"))
+        }
+        PDDocument.load(source).use { original ->
+            assertTrue(PDFTextStripper().getText(original).contains("Start ABC End"))
+        }
+    }
+
     @Test
     fun rejectsBengaliReplacementBeforeEditingAndPreservesSource() = runBlocking {
         val outputName = "native-bengali-rejected.pdf"
