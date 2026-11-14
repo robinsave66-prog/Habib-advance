@@ -61,7 +61,8 @@ data class PptxObjectGeometry(
     val x: Long,
     val y: Long,
     val width: Long,
-    val height: Long
+    val height: Long,
+    val rotationDegrees: Float? = null
 )
 
 /** Native Open XML package editing for DOCX, XLSX and PPTX. */
@@ -480,6 +481,36 @@ class OfficeOpenXmlEditingEngine(private val context: Context) {
         }
     }
 
+    /** Hides or shows one worksheet while preserving the workbook's other sheets. */
+    suspend fun setXlsxSheetVisibility(sourceUri: Uri, sheetName: String, visible: Boolean,
+        outputFileName: String = "Updated_Workbook_Sheets.xlsx"): File = withContext(Dispatchers.IO) {
+        require(sheetName.isNotBlank()) { "Select a worksheet." }
+        editTextPackage(sourceUri, outputFileName, "xlsx") { name, bytes ->
+            if (name != "xl/workbook.xml") bytes else {
+                val xml = parse(bytes)
+                val sheets = xml.getElementsByTagNameNS(SHEET_NS, "sheet")
+                val target = (0 until sheets.length).map { sheets.item(it) as Element }
+                    .firstOrNull { it.getAttribute("name") == sheetName }
+                    ?: throw IllegalArgumentException("Worksheet '$sheetName' was not found.")
+                val isVisible = target.getAttribute("state").isBlank() || target.getAttribute("state") == "visible"
+                require(isVisible != visible) {
+                    if (visible) "The selected worksheet is already visible." else "The selected worksheet is already hidden."
+                }
+                if (!visible) {
+                    val visibleCount = (0 until sheets.length).count { index ->
+                        val state = (sheets.item(index) as Element).getAttribute("state")
+                        state.isBlank() || state == "visible"
+                    }
+                    require(visibleCount > 1) { "Excel must keep at least one worksheet visible." }
+                    target.setAttribute("state", "hidden")
+                } else {
+                    target.removeAttribute("state")
+                }
+                serialize(xml)
+            }
+        }
+    }
+
     /** Sets a worksheet row's native height in points. */
     suspend fun setXlsxRowHeight(sourceUri: Uri, sheetName: String, rowNumber: Int, heightPt: Float,
         outputFileName: String = "Resized_Rows.xlsx"): File = withContext(Dispatchers.IO) {
@@ -605,6 +636,10 @@ class OfficeOpenXmlEditingEngine(private val context: Context) {
             require(geometry.x >= 0 && geometry.y >= 0 && geometry.width > 0 && geometry.height > 0) {
                 "Object position must be non-negative and size must be greater than zero."
             }
+            require(geometry.rotationDegrees == null ||
+                (geometry.rotationDegrees.isFinite() && geometry.rotationDegrees in -360f..360f)) {
+                "Object rotation must be between -360 and 360 degrees."
+            }
             editTextPackage(sourceUri, outputFileName, "pptx") { name, bytes ->
                 if (name != "ppt/slides/slide$slideNumber.xml") bytes else {
                     val xml = parse(bytes)
@@ -628,6 +663,9 @@ class OfficeOpenXmlEditingEngine(private val context: Context) {
                         .firstOrNull { it.localName == "ext" } ?: throw IllegalArgumentException("Object size is missing.")
                     off.setAttribute("x", geometry.x.toString()); off.setAttribute("y", geometry.y.toString())
                     ext.setAttribute("cx", geometry.width.toString()); ext.setAttribute("cy", geometry.height.toString())
+                    geometry.rotationDegrees?.let { rotation ->
+                        xfrm.setAttribute("rot", (rotation * 60000f).toLong().toString())
+                    }
                     serialize(xml)
                 }
             }

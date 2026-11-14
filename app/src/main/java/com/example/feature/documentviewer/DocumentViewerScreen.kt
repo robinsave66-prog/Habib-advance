@@ -218,6 +218,8 @@ fun DocumentViewerScreen(
     var officeParagraphAlignment by remember { mutableStateOf("LEFT") }
     var officeFormatCell by remember { mutableStateOf(false) }
     var officeEditSheetDimensions by remember { mutableStateOf(false) }
+    var officeEditSheetVisibility by remember { mutableStateOf(false) }
+    var officeHideSheet by remember { mutableStateOf(false) }
     var officeSetRowHeight by remember { mutableStateOf(false) }
     var officeRowNumber by remember { mutableStateOf("1") }
     var officeRowHeightPt by remember { mutableStateOf("24") }
@@ -248,6 +250,7 @@ fun DocumentViewerScreen(
     var officePptxY by remember { mutableStateOf("0") }
     var officePptxWidth by remember { mutableStateOf("914400") }
     var officePptxHeight by remember { mutableStateOf("514350") }
+    var officePptxRotation by remember { mutableStateOf("0") }
     var officeResizeSlides by remember { mutableStateOf(false) }
     var officeSlideWidth by remember { mutableStateOf("9144000") }
     var officeSlideHeight by remember { mutableStateOf("5143500") }
@@ -376,6 +379,8 @@ fun DocumentViewerScreen(
                                     officeFormatTableCell = false
                                     officeEditDocxImage = false
                                     officeEditSheetDimensions = false
+                                    officeEditSheetVisibility = false
+                                    officeHideSheet = false
                                     officeSetRowHeight = false
                                     officeSetColumnWidth = false
                                     officeEditPptxGeometry = false
@@ -638,6 +643,10 @@ fun DocumentViewerScreen(
                         )
                         FilterChip(selected = officeFormatCell, onClick = { officeFormatCell = !officeFormatCell }, label = { Text("Format selected cell") })
                         FilterChip(selected = officeEditSheetDimensions, onClick = { officeEditSheetDimensions = !officeEditSheetDimensions }, label = { Text("Edit row / column dimensions") })
+                        FilterChip(selected = officeEditSheetVisibility, onClick = { officeEditSheetVisibility = !officeEditSheetVisibility }, label = { Text("Change worksheet visibility") })
+                        if (officeEditSheetVisibility) {
+                            FilterChip(selected = officeHideSheet, onClick = { officeHideSheet = !officeHideSheet }, label = { Text(if (officeHideSheet) "Show selected worksheet" else "Hide selected worksheet") })
+                        }
                         if (officeEditSheetDimensions) {
                             FilterChip(selected = officeSetRowHeight, onClick = { officeSetRowHeight = !officeSetRowHeight }, label = { Text("Set row height") })
                             if (officeSetRowHeight) {
@@ -726,6 +735,7 @@ fun DocumentViewerScreen(
                                 OutlinedTextField(value = officePptxY, onValueChange = { officePptxY = it.filter(Char::isDigit) }, label = { Text("Y position (EMU)") }, singleLine = true)
                                 OutlinedTextField(value = officePptxWidth, onValueChange = { officePptxWidth = it.filter(Char::isDigit) }, label = { Text("Width (EMU)") }, singleLine = true)
                                 OutlinedTextField(value = officePptxHeight, onValueChange = { officePptxHeight = it.filter(Char::isDigit) }, label = { Text("Height (EMU)") }, singleLine = true)
+                                OutlinedTextField(value = officePptxRotation, onValueChange = { officePptxRotation = it.filter { ch -> ch.isDigit() || ch == '.' || ch == '-' } }, label = { Text("Rotation (degrees)") }, singleLine = true)
                             }
                             if (officeResizeSlides) {
                                 OutlinedTextField(value = officeSlideWidth, onValueChange = { officeSlideWidth = it.filter(Char::isDigit) }, label = { Text("Slide width (EMU)") }, singleLine = true)
@@ -772,7 +782,7 @@ fun DocumentViewerScreen(
                         }
                     }
                     Text(
-                        text = "Native Open XML edits preserve unrelated package parts. Word supports table text/style and named picture layout (floating pictures can move; inline pictures resize). Excel supports cell styles and row/column dimensions. PowerPoint supports named shape/picture geometry, shape colors and slide size.",
+                        text = "Native Open XML edits preserve unrelated package parts. Word supports table text/style and named picture layout (floating pictures can move; inline pictures resize). Excel supports cell styles, row/column dimensions and worksheet visibility. PowerPoint supports named shape/picture geometry, rotation, shape colors and slide size.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -783,6 +793,7 @@ fun DocumentViewerScreen(
                     enabled = !isOfficeEditing && if (formatType == DocumentFormatType.XLSX) {
                         officeSheetName.isNotBlank() && (
                             officeFormatCell ||
+                            officeEditSheetVisibility ||
                             (officeEditSheetDimensions &&
                                 ((officeSetRowHeight && officeRowNumber.toIntOrNull()?.let { it in 1..1048576 } == true && (officeRowHeightPt.toFloatOrNull() ?: 0f) > 0f) ||
                                  (officeSetColumnWidth && officeColumnLetter.isNotBlank() && (officeColumnWidth.toFloatOrNull() ?: 0f) > 0f))) ||
@@ -798,7 +809,7 @@ fun DocumentViewerScreen(
                             (officeFormatTableCell || officeReplaceText.isNotBlank())
                     } else if (formatType == DocumentFormatType.PPTX && (officeEditPptxGeometry || officeEditPptxShapeStyle || officeResizeSlides)) {
                         (!(officeEditPptxGeometry || officeEditPptxShapeStyle) || (officePptxObjectName.isNotBlank() && officePptxSlideNumber.toIntOrNull()?.let { it > 0 } == true)) &&
-                            (!officeEditPptxGeometry || (officePptxX.toLongOrNull() ?: -1L) >= 0L && (officePptxY.toLongOrNull() ?: -1L) >= 0L && (officePptxWidth.toLongOrNull() ?: 0L) > 0L && (officePptxHeight.toLongOrNull() ?: 0L) > 0L) &&
+                            (!officeEditPptxGeometry || ((officePptxX.toLongOrNull() ?: -1L) >= 0L && (officePptxY.toLongOrNull() ?: -1L) >= 0L && (officePptxWidth.toLongOrNull() ?: 0L) > 0L && (officePptxHeight.toLongOrNull() ?: 0L) > 0L && (officePptxRotation.toFloatOrNull() ?: 999f) in -360f..360f)) &&
                             (!officeResizeSlides || (officeSlideWidth.toLongOrNull() ?: 0L) > 0L && (officeSlideHeight.toLongOrNull() ?: 0L) > 0L)
                     } else officeFindText.isNotBlank(),
                     onClick = {
@@ -834,7 +845,7 @@ fun DocumentViewerScreen(
                                         if (officeEditPptxGeometry) {
                                             generated = officeEditingEngine.setPptxObjectGeometry(
                                                 baseUri, officePptxSlideNumber.toInt(), officePptxObjectName,
-                                                PptxObjectGeometry(officePptxX.toLong(), officePptxY.toLong(), officePptxWidth.toLong(), officePptxHeight.toLong()),
+                                                PptxObjectGeometry(officePptxX.toLong(), officePptxY.toLong(), officePptxWidth.toLong(), officePptxHeight.toLong(), officePptxRotation.toFloatOrNull()),
                                                 resolvedName.substringBeforeLast(".") + "_object_edited.pptx"
                                             )
                                             baseUri = Uri.fromFile(generated)
@@ -913,8 +924,15 @@ fun DocumentViewerScreen(
                                                 baseUri, officeSheetName, officeColumnLetter, officeColumnWidth.toFloat(),
                                                 resolvedName.substringBeforeLast(".") + "_column_width.xlsx"
                                             )
+                                            baseUri = Uri.fromFile(generated)
                                         }
-                                        generated ?: throw IllegalArgumentException("Enter cell data, enable cell formatting, or choose a row/column dimension edit.")
+                                        if (officeEditSheetVisibility) {
+                                            generated = officeEditingEngine.setXlsxSheetVisibility(
+                                                baseUri, officeSheetName, visible = !officeHideSheet,
+                                                resolvedName.substringBeforeLast(".") + "_sheet_visibility.xlsx"
+                                            )
+                                        }
+                                        generated ?: throw IllegalArgumentException("Enter cell data, enable cell formatting, or choose a worksheet edit.")
                                     }
                                     else -> throw IllegalArgumentException("This Office format is not editable.")
                                 }

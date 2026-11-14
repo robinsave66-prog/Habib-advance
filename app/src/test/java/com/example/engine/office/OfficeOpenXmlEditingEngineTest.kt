@@ -413,13 +413,14 @@ class OfficeOpenXmlEditingEngineTest {
         ))
         val moved = runBlocking {
             engine.setPptxObjectGeometry(Uri.fromFile(file), 1, "TitleBox",
-                PptxObjectGeometry(1000, 2000, 3000, 4000), "ppt-object-moved.pptx")
+                PptxObjectGeometry(1000, 2000, 3000, 4000, 30f), "ppt-object-moved.pptx")
         }
         val resized = runBlocking { engine.setPptxSlideSize(Uri.fromFile(moved), 8000000, 4500000, "ppt-slide-resized.pptx") }
         ZipFile(resized).use { zip ->
             val slide = zip.getInputStream(zip.getEntry("ppt/slides/slide1.xml")).bufferedReader().readText()
             assertTrue(Regex("x=.1000. y=.2000.").containsMatchIn(slide))
             assertTrue(Regex("cx=.3000. cy=.4000.").containsMatchIn(slide))
+            assertTrue(Regex("rot=.1800000.").containsMatchIn(slide))
             val presentation = zip.getInputStream(zip.getEntry("ppt/presentation.xml")).bufferedReader().readText()
             assertTrue(Regex("cx=.8000000. cy=.4500000.").containsMatchIn(presentation))
         }
@@ -469,10 +470,18 @@ class OfficeOpenXmlEditingEngineTest {
         val rowSized = runBlocking { engine.setXlsxRowHeight(Uri.fromFile(file), "Data", 1, 32f, "xlsx-row-sized.xlsx") }
         val out = runBlocking { engine.setXlsxColumnWidth(Uri.fromFile(rowSized), "Data", "B", 24f, "xlsx-column-sized.xlsx") }
         ZipFile(out).use { zip ->
-            val xml = zip.getInputStream(zip.getEntry("xl/worksheets/sheet1.xml")).bufferedReader().readText()
-            assertTrue(xml.contains("""ht="32.0" customHeight="1""""))
-            assertTrue(xml.contains("""min="2" max="2" width="24.0" customWidth="1""""))
-            assertTrue(xml.contains("<v>12</v>"))
+            val xml = DocumentBuilderFactory.newInstance().apply { isNamespaceAware = true }
+                .newDocumentBuilder().parse(zip.getInputStream(zip.getEntry("xl/worksheets/sheet1.xml")))
+            val ns = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+            val row = xml.getElementsByTagNameNS(ns, "row").item(0) as org.w3c.dom.Element
+            assertEquals("32.0", row.getAttribute("ht"))
+            assertEquals("1", row.getAttribute("customHeight"))
+            val col = xml.getElementsByTagNameNS(ns, "col").item(0) as org.w3c.dom.Element
+            assertEquals("2", col.getAttribute("min"))
+            assertEquals("2", col.getAttribute("max"))
+            assertEquals("24.0", col.getAttribute("width"))
+            assertEquals("1", col.getAttribute("customWidth"))
+            assertEquals("12", xml.getElementsByTagNameNS(ns, "v").item(0).textContent)
         }
     }
 
@@ -490,6 +499,32 @@ class OfficeOpenXmlEditingEngineTest {
             assertTrue(xml.contains("""<a:srgbClr val="AABBCC""""))
         }
     }
+
+    @Test fun xlsxCanHideAndShowAWorksheetButNeverHideTheLastVisibleSheet() {
+        val file = zip("xlsx-sheet-visibility.xlsx", mapOf(
+            "xl/workbook.xml" to """<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheets><sheet name="Data" sheetId="1"/><sheet name="Summary" sheetId="2"/></sheets></workbook>"""
+        ))
+        val hidden = runBlocking { engine.setXlsxSheetVisibility(Uri.fromFile(file), "Data", false, "xlsx-hidden.xlsx") }
+        val shown = runBlocking { engine.setXlsxSheetVisibility(Uri.fromFile(hidden), "Data", true, "xlsx-shown.xlsx") }
+        ZipFile(hidden).use { zip ->
+            val xml = zip.getInputStream(zip.getEntry("xl/workbook.xml")).bufferedReader().readText()
+            assertTrue(Regex("""name="Data"[^>]*state="hidden"""").containsMatchIn(xml))
+        }
+        ZipFile(shown).use { zip ->
+            val xml = zip.getInputStream(zip.getEntry("xl/workbook.xml")).bufferedReader().readText()
+            assertFalse(Regex("""name="Data"[^>]*state="hidden"""").containsMatchIn(xml))
+        }
+        val onlySheet = zip("xlsx-one-sheet.xlsx", mapOf(
+            "xl/workbook.xml" to """<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheets><sheet name="Only" sheetId="1"/></sheets></workbook>"""
+        ))
+        try {
+            runBlocking { engine.setXlsxSheetVisibility(Uri.fromFile(onlySheet), "Only", false, "invalid-hidden.xlsx") }
+            throw AssertionError("Hiding the last visible worksheet must be rejected.")
+        } catch (error: IllegalArgumentException) {
+            assertTrue(error.message.orEmpty().contains("at least one worksheet visible"))
+        }
+    }
+
 
     private fun zip(name: String, entries: Map<String, String>): File {
         val file = File(context.cacheDir, name)
