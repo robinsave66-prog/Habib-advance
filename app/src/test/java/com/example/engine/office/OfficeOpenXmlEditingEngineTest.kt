@@ -228,6 +228,65 @@ class OfficeOpenXmlEditingEngineTest {
         assertTrue(rejected)
     }
 
+
+    @Test fun docxEditsHeaderTextPartWithoutChangingBody() {
+        val file = zip("office-header.docx", mapOf(
+            "word/document.xml" to """<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Body stays</w:t></w:r></w:p></w:body></w:document>""",
+            "word/header1.xml" to """<w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:r><w:t>Confidential Header</w:t></w:r></w:p></w:hdr>"""
+        ))
+        val out = runBlocking {
+            engine.replaceDocxText(Uri.fromFile(file), "Confidential", "Public", "edited-header.docx")
+        }
+        ZipFile(out).use { zip ->
+            val body = zip.getInputStream(zip.getEntry("word/document.xml")).bufferedReader().readText()
+            val header = zip.getInputStream(zip.getEntry("word/header1.xml")).bufferedReader().readText()
+            assertTrue(body.contains("Body stays"))
+            assertTrue(header.contains("Public Header"))
+        }
+    }
+
+    @Test fun pptxRepeatedPhraseAcrossSlidesIsRejected() {
+        val slide = """<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:t>Quarterly Report</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>"""
+        val file = zip("office-repeated-slides.pptx", mapOf(
+            "ppt/slides/slide1.xml" to slide,
+            "ppt/slides/slide2.xml" to slide
+        ))
+        var rejected = false
+        try {
+            runBlocking {
+                engine.replacePptxText(Uri.fromFile(file), "Quarterly Report", "Annual Report", "repeated-slides-out.pptx")
+            }
+        } catch (_: IllegalArgumentException) { rejected = true }
+        assertTrue("Ambiguous text across slides must be rejected", rejected)
+        assertFalse(File(context.filesDir, "documents/repeated-slides-out.pptx").exists())
+    }
+
+    @Test fun docxRejectsDoctypeAndExternalEntityPayload() {
+        val file = zip("office-xxe.docx", mapOf(
+            "word/document.xml" to """<!DOCTYPE w:document [<!ENTITY xxe SYSTEM "file:///etc/passwd">]><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>&xxe;</w:t></w:r></w:p></w:body></w:document>"""
+        ))
+        var rejected = false
+        try {
+            runBlocking { engine.replaceDocxText(Uri.fromFile(file), "root", "changed", "xxe-out.docx") }
+        } catch (_: Exception) { rejected = true }
+        assertTrue("DOCTYPE and external entity XML must be rejected", rejected)
+        assertFalse(File(context.filesDir, "documents/xxe-out.docx").exists())
+    }
+
+    @Test fun xlsxRejectsWorksheetRelationshipEscapingPackageRoot() {
+        val file = zip("office-escaping-sheet.xlsx", mapOf(
+            "xl/workbook.xml" to """<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Data" sheetId="1" r:id="rId7"/></sheets></workbook>""",
+            "xl/_rels/workbook.xml.rels" to """<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId7" Target="../../outside.xml"/></Relationships>"""
+        ))
+        var rejected = false
+        try {
+            runBlocking { engine.setXlsxCellValue(Uri.fromFile(file), "Data", "A1", "unsafe", "escaping-sheet-out.xlsx") }
+        } catch (_: IllegalArgumentException) { rejected = true }
+        assertTrue("Worksheet relationship must remain inside package root", rejected)
+        assertFalse(File(context.filesDir, "documents/escaping-sheet-out.xlsx").exists())
+    }
+
+
     private fun zip(name: String, entries: Map<String, String>): File {
         val file = File(context.cacheDir, name)
         ZipOutputStream(file.outputStream()).use { out ->
