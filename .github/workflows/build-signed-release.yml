@@ -69,8 +69,8 @@ jobs:
           test "$(stat -c%s app/src/main/assets/tessdata/ben.traineddata)" -eq 855841
           test "$(stat -c%s app/src/main/assets/tessdata/eng.traineddata)" -eq 4113088
 
-      - name: Validate native Word page size and margin editing
-        run: gradle --no-configuration-cache testDebugUnitTest --tests 'com.example.engine.office.OfficeOpenXmlEditingEngineTest.docxCanChangePageSizeOrientationAndMarginsNatively'
+      - name: Validate remaining Word, Excel and PowerPoint layout tests
+        run: gradle --no-configuration-cache testDebugUnitTest --tests 'com.example.engine.office.OfficeOpenXmlEditingEngineTest.docxCanChangePageSizeOrientationAndMarginsNatively' --tests 'com.example.engine.office.OfficeOpenXmlEditingEngineTest.xlsxCanSetRowHeightAndColumnWidthWithoutChangingCellValues' --tests 'com.example.engine.office.OfficeOpenXmlEditingEngineTest.pptxCanMoveAndResizeNamedPictureOrShapeAndResizeSlideCanvas' --tests 'com.example.engine.office.OfficeOpenXmlEditingEngineTest.xlsxCanHideAndShowAWorksheetButNeverHideTheLastVisibleSheet'
 
       - name: Build signed release APK after targeted PDF text-edit tests
         env:
