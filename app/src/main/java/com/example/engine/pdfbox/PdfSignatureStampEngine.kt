@@ -17,7 +17,10 @@ class PdfSignatureStampEngine(private val context: Context) {
         sourceUri: Uri,
         signaturePng: ByteArray,
         targetPageOneBased: Int,
-        outputFileName: String
+        outputFileName: String,
+        horizontalPosition: Float = 0.78f,
+        verticalPosition: Float = 0.08f,
+        widthFraction: Float = 0.38f
     ): File = withContext(Dispatchers.IO) {
         require(signaturePng.isNotEmpty()) { "The signature image is empty." }
         PDFBoxResourceLoader.init(context)
@@ -39,15 +42,14 @@ class PdfSignatureStampEngine(private val context: Context) {
                 val page = document.getPage(targetPageOneBased - 1)
                 val image = PDImageXObject.createFromByteArray(document, signaturePng, "signature")
                 val box = page.mediaBox
-                val width = 160f.coerceAtMost(box.width - 20f)
-                val height = (width * image.height.toFloat() / image.width.toFloat()).coerceAtMost(100f)
-                require(width > 0f && height > 0f && box.width > 0f && box.height > 0f) {
-                    "The selected PDF page has invalid dimensions."
-                }
-                val x = (box.width - width - 40f).coerceAtLeast(10f)
-                val y = (box.height - height - 40f).coerceAtLeast(10f)
+                val placement = calculateSignaturePlacement(
+                    pageWidth = box.width, pageHeight = box.height,
+                    imageWidth = image.width.toFloat(), imageHeight = image.height.toFloat(),
+                    horizontalPosition = horizontalPosition, verticalPosition = verticalPosition,
+                    widthFraction = widthFraction
+                )
                 PDPageContentStream(document, page, PDPageContentStream.AppendMode.APPEND, true, true)
-                    .use { it.drawImage(image, x, y, width, height) }
+                    .use { it.drawImage(image, placement.x, placement.y, placement.width, placement.height) }
                 document.save(output)
             }
             output
@@ -58,4 +60,29 @@ class PdfSignatureStampEngine(private val context: Context) {
             source.delete()
         }
     }
+}
+
+
+/** PDF-space placement. Positions are normalized from the left and bottom edges. */
+data class SignaturePlacement(val x: Float, val y: Float, val width: Float, val height: Float)
+
+internal fun calculateSignaturePlacement(
+    pageWidth: Float, pageHeight: Float, imageWidth: Float, imageHeight: Float,
+    horizontalPosition: Float, verticalPosition: Float, widthFraction: Float
+): SignaturePlacement {
+    require(pageWidth.isFinite() && pageHeight.isFinite() && pageWidth > 0f && pageHeight > 0f) {
+        "The selected PDF page has invalid dimensions."
+    }
+    require(imageWidth.isFinite() && imageHeight.isFinite() && imageWidth > 0f && imageHeight > 0f) {
+        "The signature image has invalid dimensions."
+    }
+    require(horizontalPosition.isFinite() && verticalPosition.isFinite() && widthFraction.isFinite()) {
+        "Signature placement values must be finite."
+    }
+    val horizontal = horizontalPosition.coerceIn(0f, 1f)
+    val vertical = verticalPosition.coerceIn(0f, 1f)
+    val aspectRatio = imageHeight / imageWidth
+    val width = minOf(pageWidth * widthFraction.coerceIn(0.10f, 0.70f), pageHeight * 0.45f / aspectRatio, pageWidth)
+    val height = width * aspectRatio
+    return SignaturePlacement((pageWidth - width) * horizontal, (pageHeight - height) * vertical, width, height)
 }

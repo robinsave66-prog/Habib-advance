@@ -86,6 +86,25 @@ class PdfSignatureStampEngineTest {
     }
 
     @Test
+    fun placementHonorsPositionAndPreservesImageAspectRatio() {
+        val p = calculateSignaturePlacement(420f, 600f, 120f, 60f, 0.5f, 0.25f, 0.4f)
+        assertEquals(168f, p.x, 0.01f)
+        assertEquals(139.5f, p.y, 0.01f)
+        assertEquals(84f, p.width, 0.01f)
+        assertEquals(42f, p.height, 0.01f)
+    }
+
+    @Test
+    fun placementClampsInsidePageAndRejectsInvalidDimensions() {
+        val p = calculateSignaturePlacement(100f, 80f, 100f, 100f, 2f, -1f, 0.7f)
+        assertTrue(p.x >= 0f && p.y >= 0f)
+        assertTrue(p.x + p.width <= 100f && p.y + p.height <= 80f)
+        assertThrows(IllegalArgumentException::class.java) {
+            calculateSignaturePlacement(0f, 80f, 10f, 10f, 0.5f, 0.5f, 0.4f)
+        }
+    }
+
+    @Test
     fun rejectsInvalidPageWithoutCreatingOutput() = runBlocking {
         val outputName = "signature-invalid-page-test.pdf"
         val output = File(context.filesDir, "documents/$outputName")

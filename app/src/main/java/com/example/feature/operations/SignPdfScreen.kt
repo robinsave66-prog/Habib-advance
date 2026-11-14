@@ -155,6 +155,9 @@ fun SignPdfScreen(
     var signedOutputName by remember { mutableStateOf("Signed_Document_${System.currentTimeMillis() % 10000}.pdf") }
     var isSigning by remember { mutableStateOf(false) }
     var selectedSignatureFile by remember { mutableStateOf<File?>(null) }
+    var signatureHorizontalPosition by remember { mutableFloatStateOf(0.78f) }
+    var signatureVerticalPosition by remember { mutableFloatStateOf(0.08f) }
+    var signatureWidthFraction by remember { mutableFloatStateOf(0.38f) }
 
     // Universal Result Dialog state
     var resultDialogFile by remember { mutableStateOf<File?>(null) }
@@ -559,6 +562,14 @@ fun SignPdfScreen(
                                 }
                             }
 
+                            Text("Signature Position & Size", fontWeight = FontWeight.SemiBold)
+                            Text("Horizontal: ${(signatureHorizontalPosition * 100).toInt()}%")
+                            Slider(value = signatureHorizontalPosition, onValueChange = { signatureHorizontalPosition = it }, valueRange = 0f..1f, modifier = Modifier.testTag("signature_horizontal_position"))
+                            Text("Vertical from bottom: ${(signatureVerticalPosition * 100).toInt()}%")
+                            Slider(value = signatureVerticalPosition, onValueChange = { signatureVerticalPosition = it }, valueRange = 0f..1f, modifier = Modifier.testTag("signature_vertical_position"))
+                            Text("Signature width: ${(signatureWidthFraction * 100).toInt()}% of page")
+                            Slider(value = signatureWidthFraction, onValueChange = { signatureWidthFraction = it }, valueRange = 0.10f..0.70f, modifier = Modifier.testTag("signature_width_fraction"))
+
                             OutlinedTextField(
                                 value = signedOutputName,
                                 onValueChange = { signedOutputName = it },
@@ -597,7 +608,10 @@ fun SignPdfScreen(
                                         sourceUri = uri,
                                         signaturePng = signatureBytes,
                                         targetPageOneBased = targetPageToSign,
-                                        outputFileName = signedOutputName
+                                        outputFileName = signedOutputName,
+                                        horizontalPosition = signatureHorizontalPosition,
+                                        verticalPosition = signatureVerticalPosition,
+                                        widthFraction = signatureWidthFraction
                                     )
                                     onRegisterGeneratedFile(Uri.fromFile(result), result.name)
                                     resultDialogFile = result
