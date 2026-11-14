@@ -58,15 +58,16 @@ class PdfNativeBengaliTextEditInstrumentedTest {
                 assertTrue(PDFTextStripper().getText(original).contains(oldText))
             }
 
-            output = PdfNativeTextEditEngine(context).replaceText(
+            val editedFile = PdfNativeTextEditEngine(context).replaceText(
                 Uri.fromFile(source),
                 pageIndex = 0,
                 oldText = oldText,
                 newText = newText,
                 outputFileName = "native-bengali-edited.pdf"
             )
+            output = editedFile
 
-            PDDocument.load(output).use { edited ->
+            PDDocument.load(editedFile).use { edited ->
                 val extracted = PDFTextStripper().getText(edited)
                 assertTrue("Replacement Bengali Unicode must remain searchable", extracted.contains(newText))
                 assertFalse("Original Bengali text run must be replaced", extracted.contains(oldText))
@@ -81,7 +82,7 @@ class PdfNativeBengaliTextEditInstrumentedTest {
                 )
             }
 
-            ParcelFileDescriptor.open(output, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
+            ParcelFileDescriptor.open(editedFile, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
                 PdfRenderer(descriptor).use { renderer ->
                     val page = renderer.openPage(0)
                     try {
