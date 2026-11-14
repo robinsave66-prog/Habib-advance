@@ -73,11 +73,11 @@ class PdfSecureRedactionInstrumentedTest {
                             val x = (165f / 300f * bitmap.width).toInt().coerceIn(0, bitmap.width - 1)
                             val y = (195f / 400f * bitmap.height).toInt().coerceIn(0, bitmap.height - 1)
                             val pixel = bitmap.getPixel(x, y)
-                            // PdfRenderer may apply display color management; verify the pixel
-                            // remains effectively black rather than requiring exact RGB equality.
+                            // PdfRenderer display color handling may return alpha 254 for a fully
+                            // opaque black PDF image. Require near-opaque alpha and black RGB.
                             assertTrue(
                                 "Expected an effectively black redaction pixel, got ${Integer.toHexString(pixel)}",
-                                Color.alpha(pixel) == 255 &&
+                                Color.alpha(pixel) >= 250 &&
                                     Color.red(pixel) <= 32 &&
                                     Color.green(pixel) <= 32 &&
                                     Color.blue(pixel) <= 32
