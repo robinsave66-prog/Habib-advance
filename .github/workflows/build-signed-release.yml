@@ -69,8 +69,8 @@ jobs:
           test "$(stat -c%s app/src/main/assets/tessdata/ben.traineddata)" -eq 855841
           test "$(stat -c%s app/src/main/assets/tessdata/eng.traineddata)" -eq 4113088
 
-      - name: Run targeted native PDF text-edit unit tests
-        run: gradle --no-configuration-cache testDebugUnitTest --tests com.example.engine.pdfbox.PdfNativeTextEditEngineTest --tests com.example.engine.pdfbox.PdfBoxDocumentEngineTest --tests com.example.engine.pdfbox.PdfBoxOverlayExportEngineTest --tests com.example.engine.pdfbox.PdfSignatureStampEngineTest
+      - name: Run complete unit test suite
+        run: gradle --no-configuration-cache testDebugUnitTest
 
       - name: Build signed release APK after targeted PDF text-edit tests
         env:
@@ -82,6 +82,7 @@ jobs:
           gradle --no-configuration-cache assembleRelease
 
       - name: Verify APK package and signature
+        if: ${{ github.ref == 'refs/heads/main' || inputs.publish_apk == true }}
         run: |
           APK="app/build/outputs/apk/release/app-release.apk"
           test -s "$APK"
