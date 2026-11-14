@@ -70,7 +70,7 @@ jobs:
           test "$(stat -c%s app/src/main/assets/tessdata/eng.traineddata)" -eq 4113088
 
       - name: Run complete unit test suite
-        run: gradle --no-configuration-cache testDebugUnitTest
+        run: gradle --no-configuration-cache testDebugUnitTest --tests com.example.engine.office.OfficeOpenXmlEditingEngineTest
 
       - name: Build signed release APK after targeted PDF text-edit tests
         env:

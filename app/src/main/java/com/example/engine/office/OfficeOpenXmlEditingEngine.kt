@@ -193,12 +193,22 @@ class OfficeOpenXmlEditingEngine(private val context: Context) {
                 val worksheet = resolveSheet(source, sheetName)
                 var changedSheet = false
                 var changedStyles = false
-                var styleIndex = -1
+                // ZIP entry order is not guaranteed: determine the new style index before
+                // rewriting the worksheet, even when its entry precedes styles.xml.
+                val styleIndex = ZipFile(source).use { packageZip ->
+                    val stylesEntry = packageZip.getEntry("xl/styles.xml")
+                        ?: throw IllegalArgumentException("Workbook styles.xml is missing.")
+                    val stylesXml = parse(packageZip.getInputStream(stylesEntry).use { it.readBytes() })
+                    val cellXfs = stylesXml.getElementsByTagNameNS(SHEET_NS, "cellXfs").item(0) as? Element
+                        ?: throw IllegalArgumentException("Workbook cellXfs style table is missing.")
+                    (0 until cellXfs.childNodes.length).count { cellXfs.childNodes.item(it) is Element }
+                }
                 rewriteZip(source, output) { name, bytes ->
                     when (name) {
                         "xl/styles.xml" -> {
                             val xml = parse(bytes)
-                            styleIndex = appendXlsxStyle(xml, format)
+                            val appendedStyleIndex = appendXlsxStyle(xml, format)
+                            check(appendedStyleIndex == styleIndex) { "Workbook style table changed during formatting." }
                             changedStyles = true
                             serialize(xml)
                         }

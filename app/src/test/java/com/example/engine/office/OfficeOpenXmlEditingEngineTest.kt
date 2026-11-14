@@ -417,9 +417,10 @@ class OfficeOpenXmlEditingEngineTest {
         val resized = runBlocking { engine.setPptxSlideSize(Uri.fromFile(moved), 8000000, 4500000, "ppt-slide-resized.pptx") }
         ZipFile(resized).use { zip ->
             val slide = zip.getInputStream(zip.getEntry("ppt/slides/slide1.xml")).bufferedReader().readText()
-            assertTrue(slide.contains("x=\\"1000\\" y=\\"2000\\"")); assertTrue(slide.contains("cx=\\"3000\\" cy=\\"4000\\""))
+            assertTrue(Regex("x=.1000. y=.2000.").containsMatchIn(slide))
+            assertTrue(Regex("cx=.3000. cy=.4000.").containsMatchIn(slide))
             val presentation = zip.getInputStream(zip.getEntry("ppt/presentation.xml")).bufferedReader().readText()
-            assertTrue(presentation.contains("cx=\\"8000000\\" cy=\\"4500000\\""))
+            assertTrue(Regex("cx=.8000000. cy=.4500000.").containsMatchIn(presentation))
         }
     }
 
