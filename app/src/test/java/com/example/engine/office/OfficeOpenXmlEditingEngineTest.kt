@@ -287,6 +287,83 @@ class OfficeOpenXmlEditingEngineTest {
     }
 
 
+    @Test fun docxAppliesTextAndParagraphFormattingWhenRequested() {
+        val file = zip("office-docx-style.docx", mapOf(
+            "word/document.xml" to """<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Style me</w:t></w:r></w:p></w:body></w:document>"""
+        ))
+        val out = runBlocking {
+            engine.replaceDocxText(
+                Uri.fromFile(file), "Style me", "Styled",
+                "office-docx-style-out.docx",
+                OfficeTextStyle(true, true, true, 18f, "1E88E5", "CENTER")
+            )
+        }
+        ZipFile(out).use { zip ->
+            val xml = DocumentBuilderFactory.newInstance().apply { isNamespaceAware = true }
+                .newDocumentBuilder().parse(zip.getInputStream(zip.getEntry("word/document.xml")))
+            val ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+            val bold = xml.getElementsByTagNameNS(ns, "b").item(0) as org.w3c.dom.Element
+            val italic = xml.getElementsByTagNameNS(ns, "i").item(0) as org.w3c.dom.Element
+            val underline = xml.getElementsByTagNameNS(ns, "u").item(0) as org.w3c.dom.Element
+            val size = xml.getElementsByTagNameNS(ns, "sz").item(0) as org.w3c.dom.Element
+            val color = xml.getElementsByTagNameNS(ns, "color").item(0) as org.w3c.dom.Element
+            val alignment = xml.getElementsByTagNameNS(ns, "jc").item(0) as org.w3c.dom.Element
+            assertEquals("1", bold.getAttributeNS(ns, "val"))
+            assertEquals("1", italic.getAttributeNS(ns, "val"))
+            assertEquals("single", underline.getAttributeNS(ns, "val"))
+            assertEquals("36", size.getAttributeNS(ns, "val"))
+            assertEquals("1E88E5", color.getAttributeNS(ns, "val"))
+            assertEquals("center", alignment.getAttributeNS(ns, "val"))
+        }
+    }
+
+    @Test fun pptxAppliesTextAndParagraphFormattingWhenRequested() {
+        val file = zip("office-pptx-style.pptx", mapOf(
+            "ppt/slides/slide1.xml" to """<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:t>Style me</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>"""
+        ))
+        val out = runBlocking {
+            engine.replacePptxText(
+                Uri.fromFile(file), "Style me", "Styled",
+                "office-pptx-style-out.pptx",
+                OfficeTextStyle(true, false, true, 20f, "FF5500", "RIGHT")
+            )
+        }
+        ZipFile(out).use { zip ->
+            val xml = DocumentBuilderFactory.newInstance().apply { isNamespaceAware = true }
+                .newDocumentBuilder().parse(zip.getInputStream(zip.getEntry("ppt/slides/slide1.xml")))
+            val ns = "http://schemas.openxmlformats.org/drawingml/2006/main"
+            val run = xml.getElementsByTagNameNS(ns, "rPr").item(0) as org.w3c.dom.Element
+            assertEquals("1", run.getAttribute("b"))
+            assertEquals("0", run.getAttribute("i"))
+            assertEquals("sng", run.getAttribute("u"))
+            assertEquals("2000", run.getAttribute("sz"))
+            assertEquals("FF5500", xml.getElementsByTagNameNS(ns, "srgbClr").item(0).attributes.getNamedItem("val").nodeValue)
+            assertEquals("r", (xml.getElementsByTagNameNS(ns, "pPr").item(0) as org.w3c.dom.Element).getAttribute("algn"))
+        }
+    }
+
+    @Test fun officeTextStyleRejectsInvalidFontSizeAndColor() {
+        val file = zip("office-invalid-style.docx", mapOf(
+            "word/document.xml" to """<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Style me</w:t></w:r></w:p></w:body></w:document>"""
+        ))
+        listOf(
+            OfficeTextStyle(false, false, false, 0f, "000000", "LEFT"),
+            OfficeTextStyle(false, false, false, 12f, "#FFFFFF", "LEFT"),
+            OfficeTextStyle(false, false, false, 12f, "GGGGGG", "LEFT")
+        ).forEachIndexed { index, style ->
+            var rejected = false
+            try {
+                runBlocking {
+                    engine.replaceDocxText(
+                        Uri.fromFile(file), "Style me", "Styled",
+                        "office-invalid-style-$index.docx", style
+                    )
+                }
+            } catch (_: IllegalArgumentException) { rejected = true }
+            assertTrue("Invalid style $index must be rejected", rejected)
+        }
+    }
+
     private fun zip(name: String, entries: Map<String, String>): File {
         val file = File(context.cacheDir, name)
         ZipOutputStream(file.outputStream()).use { out ->

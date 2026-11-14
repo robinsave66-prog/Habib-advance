@@ -25,16 +25,31 @@ data class XlsxCellEdit(
     val formula: String? = null
 )
 
+/**
+ * Formatting applied to the uniquely matched text run and its containing paragraph.
+ * A null style leaves existing formatting untouched.
+ */
+data class OfficeTextStyle(
+    val bold: Boolean,
+    val italic: Boolean,
+    val underline: Boolean,
+    val fontSizePt: Float? = null,
+    val fontColorHex: String? = null,
+    val paragraphAlignment: String? = null
+)
+
 /** Native Open XML package editing for DOCX, XLSX and PPTX. */
 class OfficeOpenXmlEditingEngine(private val context: Context) {
     suspend fun replaceDocxText(sourceUri: Uri, oldText: String, newText: String,
-        outputFileName: String = "Edited_Document.docx"): File = withContext(Dispatchers.IO) {
+        outputFileName: String = "Edited_Document.docx",
+        style: OfficeTextStyle? = null): File = withContext(Dispatchers.IO) {
         require(oldText.isNotEmpty()) { "Find text cannot be empty." }
+        validateTextStyle(style)
         var matchesAcrossPackage = 0
         editTextPackage(sourceUri, outputFileName, "docx") { name, bytes ->
             if (name.matches(Regex("word/(document|header\\d*|footer\\d*|footnotes|endnotes)\\.xml"))) {
                 val xml = parse(bytes)
-                if (replaceUnique(xml, WORD_NS, "p", "t", oldText, newText, "DOCX")) {
+                if (replaceUnique(xml, WORD_NS, "p", "t", oldText, newText, "DOCX", style)) {
                     matchesAcrossPackage++
                     require(matchesAcrossPackage == 1) { "Text occurs in more than one document part. Use a more specific phrase." }
                     serialize(xml)
@@ -44,13 +59,15 @@ class OfficeOpenXmlEditingEngine(private val context: Context) {
     }
 
     suspend fun replacePptxText(sourceUri: Uri, oldText: String, newText: String,
-        outputFileName: String = "Edited_Presentation.pptx"): File = withContext(Dispatchers.IO) {
+        outputFileName: String = "Edited_Presentation.pptx",
+        style: OfficeTextStyle? = null): File = withContext(Dispatchers.IO) {
         require(oldText.isNotEmpty()) { "Find text cannot be empty." }
+        validateTextStyle(style)
         var matchesAcrossPackage = 0
         editTextPackage(sourceUri, outputFileName, "pptx") { name, bytes ->
             if (name.matches(Regex("ppt/slides/slide\\d+\\.xml"))) {
                 val xml = parse(bytes)
-                if (replaceUnique(xml, DRAWING_NS, "p", "t", oldText, newText, "PPTX")) {
+                if (replaceUnique(xml, DRAWING_NS, "p", "t", oldText, newText, "PPTX", style)) {
                     matchesAcrossPackage++
                     require(matchesAcrossPackage == 1) { "Text occurs in more than one slide. Use a more specific phrase." }
                     serialize(xml)
@@ -297,7 +314,7 @@ class OfficeOpenXmlEditingEngine(private val context: Context) {
      * paragraph structure are retained.
      */
     private fun replaceUnique(xml: Document, namespace: String, paragraphTag: String, textTag: String,
-        old: String, replacement: String, format: String): Boolean {
+        old: String, replacement: String, format: String, style: OfficeTextStyle? = null): Boolean {
         val paragraphs = xml.getElementsByTagNameNS(namespace, paragraphTag)
         val matches = mutableListOf<List<org.w3c.dom.Node>>()
         val offsets = mutableListOf<Int>()
@@ -359,7 +376,117 @@ class OfficeOpenXmlEditingEngine(private val context: Context) {
             nodes[endNode].textContent = lastText.substring(endOffset)
             preserveSpaceIfNeeded(nodes[endNode] as? Element, nodes[endNode].textContent.orEmpty())
         }
+        if (style != null) {
+            val run = nodes[startNode].parentNode as? Element
+            if (run != null) {
+                applyRunStyle(run, namespace, format, style)
+                var ancestor = run.parentNode
+                while (ancestor != null && !(ancestor is Element && ancestor.namespaceURI == namespace &&
+                        ancestor.localName == paragraphTag)) {
+                    ancestor = ancestor.parentNode
+                }
+                (ancestor as? Element)?.let { applyParagraphStyle(it, namespace, format, style) }
+            }
+        }
         return true
+    }
+
+    private fun validateTextStyle(style: OfficeTextStyle?) {
+        if (style == null) return
+        require(style.fontSizePt == null || (style.fontSizePt.isFinite() && style.fontSizePt in 1f..200f)) {
+            "Font size must be between 1 and 200 points."
+        }
+        require(style.fontColorHex == null || style.fontColorHex.matches(Regex("^[0-9A-Fa-f]{6}$"))) {
+            "Font color must be a six-digit RGB hex value without #."
+        }
+        require(style.paragraphAlignment == null ||
+            style.paragraphAlignment.uppercase() in setOf("LEFT", "CENTER", "RIGHT", "JUSTIFY")) {
+            "Paragraph alignment must be Left, Center, Right or Justify."
+        }
+    }
+
+    private fun applyRunStyle(run: Element, namespace: String, format: String, style: OfficeTextStyle) {
+        val docx = format == "DOCX"
+        val prefix = if (docx) "w:" else "a:"
+        val propertiesName = if (docx) "rPr" else "rPr"
+        val properties = (0 until run.childNodes.length)
+            .mapNotNull { run.childNodes.item(it) as? Element }
+            .firstOrNull { it.namespaceURI == namespace && it.localName == propertiesName }
+            ?: run.ownerDocument.createElementNS(namespace, prefix + propertiesName).also {
+                run.insertBefore(it, run.firstChild)
+            }
+
+        if (docx) {
+            fun setWordToggle(localName: String, enabled: Boolean) {
+                val node = (0 until properties.childNodes.length)
+                    .mapNotNull { properties.childNodes.item(it) as? Element }
+                    .firstOrNull { it.namespaceURI == namespace && it.localName == localName }
+                    ?: run.ownerDocument.createElementNS(namespace, prefix + localName).also { properties.appendChild(it) }
+                node.setAttributeNS(namespace, prefix + "val", if (enabled) "1" else "0")
+            }
+            setWordToggle("b", style.bold)
+            setWordToggle("i", style.italic)
+            val underline = (0 until properties.childNodes.length)
+                .mapNotNull { properties.childNodes.item(it) as? Element }
+                .firstOrNull { it.namespaceURI == namespace && it.localName == "u" }
+                ?: run.ownerDocument.createElementNS(namespace, prefix + "u").also { properties.appendChild(it) }
+            underline.setAttributeNS(namespace, prefix + "val", if (style.underline) "single" else "none")
+            style.fontSizePt?.let { size ->
+                val node = (0 until properties.childNodes.length).mapNotNull { properties.childNodes.item(it) as? Element }
+                    .firstOrNull { it.namespaceURI == namespace && it.localName == "sz" }
+                    ?: run.ownerDocument.createElementNS(namespace, prefix + "sz").also { properties.appendChild(it) }
+                node.setAttributeNS(namespace, prefix + "val", (size * 2f).toInt().toString())
+            }
+            style.fontColorHex?.let { color ->
+                val node = (0 until properties.childNodes.length).mapNotNull { properties.childNodes.item(it) as? Element }
+                    .firstOrNull { it.namespaceURI == namespace && it.localName == "color" }
+                    ?: run.ownerDocument.createElementNS(namespace, prefix + "color").also { properties.appendChild(it) }
+                node.setAttributeNS(namespace, prefix + "val", color.uppercase())
+            }
+        } else {
+            properties.setAttribute("b", if (style.bold) "1" else "0")
+            properties.setAttribute("i", if (style.italic) "1" else "0")
+            properties.setAttribute("u", if (style.underline) "sng" else "none")
+            style.fontSizePt?.let { properties.setAttribute("sz", (it * 100f).toInt().toString()) }
+            style.fontColorHex?.let { color ->
+                val existing = (0 until properties.childNodes.length)
+                    .mapNotNull { properties.childNodes.item(it) as? Element }
+                    .firstOrNull { it.namespaceURI == namespace && it.localName == "solidFill" }
+                existing?.let { properties.removeChild(it) }
+                val fill = run.ownerDocument.createElementNS(namespace, prefix + "solidFill")
+                val rgb = run.ownerDocument.createElementNS(namespace, prefix + "srgbClr")
+                rgb.setAttribute("val", color.uppercase())
+                fill.appendChild(rgb)
+                properties.appendChild(fill)
+            }
+        }
+    }
+
+    private fun applyParagraphStyle(paragraph: Element, namespace: String, format: String, style: OfficeTextStyle) {
+        val alignment = style.paragraphAlignment?.uppercase() ?: return
+        val docx = format == "DOCX"
+        val prefix = if (docx) "w:" else "a:"
+        val propertiesName = if (docx) "pPr" else "pPr"
+        val properties = (0 until paragraph.childNodes.length)
+            .mapNotNull { paragraph.childNodes.item(it) as? Element }
+            .firstOrNull { it.namespaceURI == namespace && it.localName == propertiesName }
+            ?: paragraph.ownerDocument.createElementNS(namespace, prefix + propertiesName).also {
+                paragraph.insertBefore(it, paragraph.firstChild)
+            }
+        val value = when (alignment) {
+            "CENTER" -> if (docx) "center" else "ctr"
+            "RIGHT" -> if (docx) "right" else "r"
+            "JUSTIFY" -> if (docx) "both" else "just"
+            else -> if (docx) "left" else "l"
+        }
+        if (docx) {
+            val jc = (0 until properties.childNodes.length).mapNotNull { properties.childNodes.item(it) as? Element }
+                .firstOrNull { it.namespaceURI == namespace && it.localName == "jc" }
+                ?: paragraph.ownerDocument.createElementNS(namespace, prefix + "jc").also { properties.appendChild(it) }
+            jc.setAttributeNS(namespace, prefix + "val", value)
+        } else {
+            properties.setAttribute("algn", value)
+        }
     }
 
     private fun org.w3c.dom.Node.childTextNodes(

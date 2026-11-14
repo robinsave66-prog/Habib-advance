@@ -61,6 +61,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
 import com.example.engine.office.OfficeOpenXmlEditingEngine
 import com.example.engine.office.XlsxCellEdit
+import com.example.engine.office.OfficeTextStyle
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -204,6 +205,13 @@ fun DocumentViewerScreen(
     var officeCellValue by remember { mutableStateOf("") }
     var officeFormula by remember { mutableStateOf("") }
     var officeBulkEdits by remember { mutableStateOf("") }
+    var officeApplyTextStyle by remember { mutableStateOf(false) }
+    var officeTextBold by remember { mutableStateOf(false) }
+    var officeTextItalic by remember { mutableStateOf(false) }
+    var officeTextUnderline by remember { mutableStateOf(false) }
+    var officeTextSizePt by remember { mutableStateOf("12") }
+    var officeTextColorHex by remember { mutableStateOf("000000") }
+    var officeParagraphAlignment by remember { mutableStateOf("LEFT") }
     var pendingOfficeOutput by remember { mutableStateOf<File?>(null) }
     val officeEditingEngine = remember(context) { OfficeOpenXmlEditingEngine(context) }
 
@@ -317,6 +325,13 @@ fun DocumentViewerScreen(
                                     officeCellValue = ""
                                     officeFormula = ""
                                     officeBulkEdits = ""
+                                    officeApplyTextStyle = false
+                                    officeTextBold = false
+                                    officeTextItalic = false
+                                    officeTextUnderline = false
+                                    officeTextSizePt = "12"
+                                    officeTextColorHex = "000000"
+                                    officeParagraphAlignment = "LEFT"
                                     showOfficeEditDialog = true
                                 },
                                 enabled = !isOfficeEditing,
@@ -585,6 +600,42 @@ fun DocumentViewerScreen(
                             label = { Text("Replace with") },
                             minLines = 1
                         )
+                        FilterChip(
+                            selected = officeApplyTextStyle,
+                            onClick = { officeApplyTextStyle = !officeApplyTextStyle },
+                            label = { Text("Apply formatting to replacement") },
+                            modifier = Modifier.testTag("office_apply_text_style")
+                        )
+                        if (officeApplyTextStyle) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                FilterChip(officeTextBold, { officeTextBold = it }, label = { Text("Bold") })
+                                FilterChip(officeTextItalic, { officeTextItalic = it }, label = { Text("Italic") })
+                                FilterChip(officeTextUnderline, { officeTextUnderline = it }, label = { Text("Underline") })
+                            }
+                            OutlinedTextField(
+                                value = officeTextSizePt,
+                                onValueChange = { officeTextSizePt = it.filter { ch -> ch.isDigit() || ch == '.' }.take(6) },
+                                label = { Text("Font size (pt)") },
+                                singleLine = true,
+                                modifier = Modifier.testTag("office_text_size")
+                            )
+                            OutlinedTextField(
+                                value = officeTextColorHex,
+                                onValueChange = { officeTextColorHex = it.filter { ch -> ch.isLetterOrDigit() }.take(6).uppercase() },
+                                label = { Text("Text color (RGB hex, e.g. 1E88E5)") },
+                                singleLine = true,
+                                modifier = Modifier.testTag("office_text_color")
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                listOf("LEFT", "CENTER", "RIGHT", "JUSTIFY").forEach { alignment ->
+                                    FilterChip(
+                                        selected = officeParagraphAlignment == alignment,
+                                        onClick = { officeParagraphAlignment = alignment },
+                                        label = { Text(alignment.lowercase().replaceFirstChar { it.uppercase() }) }
+                                    )
+                                }
+                            }
+                        }
                     }
                     Text(
                         text = "This applies native Open XML text/cell edits and preserves unrelated package parts. Excel formulas are stored but recalculated by a compatible spreadsheet app when opened; full layout editing is not yet available.",
@@ -608,11 +659,13 @@ fun DocumentViewerScreen(
                                 val output = when (formatType) {
                                     DocumentFormatType.DOCX -> officeEditingEngine.replaceDocxText(
                                         documentUri, officeFindText, officeReplaceText,
-                                        resolvedName.substringBeforeLast(".") + "_edited.docx"
+                                        resolvedName.substringBeforeLast(".") + "_edited.docx",
+                                        style = if (officeApplyTextStyle) OfficeTextStyle(officeTextBold, officeTextItalic, officeTextUnderline, officeTextSizePt.toFloatOrNull(), officeTextColorHex, officeParagraphAlignment) else null
                                     )
                                     DocumentFormatType.PPTX -> officeEditingEngine.replacePptxText(
                                         documentUri, officeFindText, officeReplaceText,
-                                        resolvedName.substringBeforeLast(".") + "_edited.pptx"
+                                        resolvedName.substringBeforeLast(".") + "_edited.pptx",
+                                        style = buildOfficeTextStyle()
                                     )
                                     DocumentFormatType.XLSX -> {
                                         val edits = if (officeBulkEdits.isNotBlank()) {
