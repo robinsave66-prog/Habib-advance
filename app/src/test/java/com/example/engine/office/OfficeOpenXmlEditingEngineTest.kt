@@ -389,7 +389,8 @@ class OfficeOpenXmlEditingEngineTest {
             assertEquals("1", styles.getElementsByTagNameNS(ns, "b").length.toString())
             assertEquals("CENTER", styles.getElementsByTagNameNS(ns, "alignment").item(0)
                 .let { (it as org.w3c.dom.Element).getAttribute("horizontal").uppercase() })
-            assertEquals("FF112233", (styles.getElementsByTagNameNS(ns, "color").item(0) as org.w3c.dom.Element).getAttribute("rgb"))
+            val formattedFont = styles.getElementsByTagNameNS(ns, "font").item(1) as org.w3c.dom.Element
+            assertEquals("FF112233", (formattedFont.getElementsByTagNameNS(ns, "color").item(0) as org.w3c.dom.Element).getAttribute("rgb"))
         }
     }
 
