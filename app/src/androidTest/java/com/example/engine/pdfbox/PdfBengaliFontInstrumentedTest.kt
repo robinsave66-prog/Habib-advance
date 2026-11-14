@@ -34,7 +34,22 @@ class PdfBengaliFontInstrumentedTest {
             "fonts/NotoSansBengali[wdth,wght].ttf"
         )
         val glyphCheck = Paint().apply { typeface = bundledTypeface }
-        assertTrue("Bundled font must contain Bengali glyphs and conjunct sequences", glyphCheck.hasGlyph(sample))
+        // Paint.hasGlyph checks a whole sequence as one shaped unit. Android releases
+        // may report false for Bengali conjunct clusters even when every code point
+        // exists in the font. Check cmap coverage per code point here; the PDF raster
+        // assertion below verifies the actual rendered output.
+        var offset = 0
+        while (offset < sample.length) {
+            val codePoint = sample.codePointAt(offset)
+            val character = String(Character.toChars(codePoint))
+            if (!character.isBlank()) {
+                assertTrue(
+                    "Bundled Bengali font is missing U+" + codePoint.toString(16),
+                    glyphCheck.hasGlyph(character)
+                )
+            }
+            offset += Character.charCount(codePoint)
+        }
 
         val source = File(context.cacheDir, "bengali-font-source.pdf")
         var output: File? = null
