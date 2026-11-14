@@ -76,7 +76,7 @@ jobs:
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          gradle --no-daemon --no-configuration-cache assembleRelease
+          gradle --no-configuration-cache assembleRelease
 
       - name: Verify APK package and signature
         run: |
@@ -101,9 +101,9 @@ jobs:
           cores: 2
           ram-size: 2048M
           heap-size: 512M
-          disable-animations: false
+          disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
-          script: gradle --no-daemon --no-configuration-cache connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.example.engine.pdfbox.PdfBengaliFontInstrumentedTest
+          script: gradle --no-configuration-cache connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.example.engine.pdfbox.PdfBengaliFontInstrumentedTest
 
       - name: Publish the single root APK
         if: ${{ github.ref == 'refs/heads/main' || inputs.publish_apk == true }}
