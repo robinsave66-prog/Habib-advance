@@ -63,6 +63,7 @@ import com.example.engine.office.OfficeOpenXmlEditingEngine
 import com.example.engine.office.XlsxCellEdit
 import com.example.engine.office.XlsxCellFormat
 import com.example.engine.office.DocxImageGeometry
+import com.example.engine.office.DocxPageLayout
 import com.example.engine.office.PptxShapeStyle
 import com.example.engine.office.PptxObjectGeometry
 import com.example.engine.office.OfficeTextStyle
@@ -232,6 +233,13 @@ fun DocumentViewerScreen(
     var officeFormatTableCell by remember { mutableStateOf(false) }
     var officeTableFillColorHex by remember { mutableStateOf("FFFFFF") }
     var officeEditDocxImage by remember { mutableStateOf(false) }
+    var officeEditPageLayout by remember { mutableStateOf(false) }
+    var officePageWidthTwips by remember { mutableStateOf("11906") }
+    var officePageHeightTwips by remember { mutableStateOf("16838") }
+    var officePageTopMargin by remember { mutableStateOf("1440") }
+    var officePageBottomMargin by remember { mutableStateOf("1440") }
+    var officePageLeftMargin by remember { mutableStateOf("1440") }
+    var officePageRightMargin by remember { mutableStateOf("1440") }
     var officeDocxImageName by remember { mutableStateOf("") }
     var officeDocxImageX by remember { mutableStateOf("0") }
     var officeDocxImageY by remember { mutableStateOf("0") }
@@ -378,6 +386,7 @@ fun DocumentViewerScreen(
                                     officeEditTableCell = false
                                     officeFormatTableCell = false
                                     officeEditDocxImage = false
+                                    officeEditPageLayout = false
                                     officeEditSheetDimensions = false
                                     officeEditSheetVisibility = false
                                     officeHideSheet = false
@@ -719,6 +728,15 @@ fun DocumentViewerScreen(
                                 OutlinedTextField(value = officeDocxImageWidth, onValueChange = { officeDocxImageWidth = it.filter(Char::isDigit) }, label = { Text("Picture width (EMU)") }, singleLine = true)
                                 OutlinedTextField(value = officeDocxImageHeight, onValueChange = { officeDocxImageHeight = it.filter(Char::isDigit) }, label = { Text("Picture height (EMU)") }, singleLine = true)
                             }
+                            FilterChip(selected = officeEditPageLayout, onClick = { officeEditPageLayout = !officeEditPageLayout }, label = { Text("Edit page size and margins") })
+                            if (officeEditPageLayout) {
+                                OutlinedTextField(value = officePageWidthTwips, onValueChange = { officePageWidthTwips = it.filter(Char::isDigit) }, label = { Text("Page width (twips)") }, singleLine = true)
+                                OutlinedTextField(value = officePageHeightTwips, onValueChange = { officePageHeightTwips = it.filter(Char::isDigit) }, label = { Text("Page height (twips)") }, singleLine = true)
+                                OutlinedTextField(value = officePageTopMargin, onValueChange = { officePageTopMargin = it.filter(Char::isDigit) }, label = { Text("Top margin (twips)") }, singleLine = true)
+                                OutlinedTextField(value = officePageBottomMargin, onValueChange = { officePageBottomMargin = it.filter(Char::isDigit) }, label = { Text("Bottom margin (twips)") }, singleLine = true)
+                                OutlinedTextField(value = officePageLeftMargin, onValueChange = { officePageLeftMargin = it.filter(Char::isDigit) }, label = { Text("Left margin (twips)") }, singleLine = true)
+                                OutlinedTextField(value = officePageRightMargin, onValueChange = { officePageRightMargin = it.filter(Char::isDigit) }, label = { Text("Right margin (twips)") }, singleLine = true)
+                            }
                         }
                         if (formatType == DocumentFormatType.PPTX) {
                             FilterChip(selected = officeEditPptxGeometry, onClick = { officeEditPptxGeometry = !officeEditPptxGeometry }, label = { Text("Move / resize named shape or picture") })
@@ -782,7 +800,7 @@ fun DocumentViewerScreen(
                         }
                     }
                     Text(
-                        text = "Native Open XML edits preserve unrelated package parts. Word supports table text/style and named picture layout (floating pictures can move; inline pictures resize). Excel supports cell styles, row/column dimensions and worksheet visibility. PowerPoint supports named shape/picture geometry, rotation, shape colors and slide size.",
+                        text = "Native Open XML edits preserve unrelated package parts. Word supports table text/style, named picture layout, page size and margins (floating pictures can move; inline pictures resize). Excel supports cell styles, row/column dimensions and worksheet visibility. PowerPoint supports named shape/picture geometry, rotation, shape colors and slide size.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -800,6 +818,15 @@ fun DocumentViewerScreen(
                             officeBulkEdits.isNotBlank() ||
                             (officeCellReference.isNotBlank() && (officeFormula.isNotBlank() || officeCellValue.isNotBlank()))
                         )
+                    } else if (formatType == DocumentFormatType.DOCX && officeEditPageLayout) {
+                        val width = officePageWidthTwips.toIntOrNull() ?: 0
+                        val height = officePageHeightTwips.toIntOrNull() ?: 0
+                        val top = officePageTopMargin.toIntOrNull() ?: -1
+                        val bottom = officePageBottomMargin.toIntOrNull() ?: -1
+                        val left = officePageLeftMargin.toIntOrNull() ?: -1
+                        val right = officePageRightMargin.toIntOrNull() ?: -1
+                        width in 1440..31680 && height in 1440..31680 && top >= 0 && bottom >= 0 && left >= 0 && right >= 0 &&
+                            left + right < width && top + bottom < height
                     } else if (formatType == DocumentFormatType.DOCX && officeEditDocxImage) {
                         officeDocxImageName.isNotBlank() && (officeDocxImageX.toLongOrNull() ?: -1L) >= 0L && (officeDocxImageY.toLongOrNull() ?: -1L) >= 0L && (officeDocxImageWidth.toLongOrNull() ?: 0L) > 0L && (officeDocxImageHeight.toLongOrNull() ?: 0L) > 0L
                     } else if (formatType == DocumentFormatType.DOCX && officeEditTableCell) {
@@ -818,6 +845,15 @@ fun DocumentViewerScreen(
                             try {
                                 val output = when (formatType) {
                                     DocumentFormatType.DOCX -> when {
+                                        officeEditPageLayout -> officeEditingEngine.setDocxPageLayout(
+                                            documentUri,
+                                            DocxPageLayout(
+                                                officePageWidthTwips.toInt(), officePageHeightTwips.toInt(),
+                                                officePageTopMargin.toInt(), officePageBottomMargin.toInt(),
+                                                officePageLeftMargin.toInt(), officePageRightMargin.toInt()
+                                            ),
+                                            resolvedName.substringBeforeLast(".") + "_page_layout.docx"
+                                        )
                                         officeEditDocxImage -> officeEditingEngine.setDocxImageGeometry(
                                             documentUri, officeDocxImageName,
                                             DocxImageGeometry(officeDocxImageX.toLong(), officeDocxImageY.toLong(), officeDocxImageWidth.toLong(), officeDocxImageHeight.toLong()),

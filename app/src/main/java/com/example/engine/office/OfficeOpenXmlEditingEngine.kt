@@ -51,6 +51,18 @@ data class XlsxCellFormat(
     val wrapText: Boolean = false
 )
 
+/** Word page dimensions and margins are measured in twips (1/20 point). */
+data class DocxPageLayout(
+    val pageWidthTwips: Int,
+    val pageHeightTwips: Int,
+    val topMarginTwips: Int,
+    val bottomMarginTwips: Int,
+    val leftMarginTwips: Int,
+    val rightMarginTwips: Int,
+    val headerDistanceTwips: Int = 720,
+    val footerDistanceTwips: Int = 720
+)
+
 /** Geometry uses Office EMUs (914400 EMUs per inch). */
 data class DocxImageGeometry(val x: Long, val y: Long, val width: Long, val height: Long)
 
@@ -365,6 +377,52 @@ class OfficeOpenXmlEditingEngine(private val context: Context) {
                     textNodes.item(0).textContent = text
                     for (i in 1 until textNodes.length) textNodes.item(i).textContent = ""
                 }
+                serialize(xml)
+            }
+        }
+    }
+
+    /** Updates native Word section page size, orientation and page margins. */
+    suspend fun setDocxPageLayout(sourceUri: Uri, layout: DocxPageLayout,
+        outputFileName: String = "Updated_Word_Page_Layout.docx"): File = withContext(Dispatchers.IO) {
+        require(layout.pageWidthTwips in 1440..31680 && layout.pageHeightTwips in 1440..31680) {
+            "Word page width and height must be between 1 and 22 inches."
+        }
+        require(layout.topMarginTwips >= 0 && layout.bottomMarginTwips >= 0 &&
+            layout.leftMarginTwips >= 0 && layout.rightMarginTwips >= 0 &&
+            layout.headerDistanceTwips >= 0 && layout.footerDistanceTwips >= 0) {
+            "Word page margins cannot be negative."
+        }
+        require(layout.leftMarginTwips + layout.rightMarginTwips < layout.pageWidthTwips &&
+            layout.topMarginTwips + layout.bottomMarginTwips < layout.pageHeightTwips) {
+            "Word page margins must leave printable space."
+        }
+        editTextPackage(sourceUri, outputFileName, "docx") { name, bytes ->
+            if (name != "word/document.xml") bytes else {
+                val xml = parse(bytes)
+                val body = xml.getElementsByTagNameNS(WORD_NS, "body").item(0) as? Element
+                    ?: throw IllegalArgumentException("Word document body is missing.")
+                val sections = xml.getElementsByTagNameNS(WORD_NS, "sectPr")
+                val section = if (sections.length > 0) sections.item(sections.length - 1) as Element
+                    else xml.createElementNS(WORD_NS, "w:sectPr").also { body.appendChild(it) }
+                fun direct(local: String): Element? =
+                    (0 until section.childNodes.length).mapNotNull { section.childNodes.item(it) as? Element }
+                        .firstOrNull { it.namespaceURI == WORD_NS && it.localName == local }
+                val pageSize = direct("pgSz") ?: xml.createElementNS(WORD_NS, "w:pgSz").also { created ->
+                    val margins = direct("pgMar")
+                    if (margins == null) section.appendChild(created) else section.insertBefore(created, margins)
+                }
+                pageSize.setAttributeNS(WORD_NS, "w:w", layout.pageWidthTwips.toString())
+                pageSize.setAttributeNS(WORD_NS, "w:h", layout.pageHeightTwips.toString())
+                pageSize.setAttributeNS(WORD_NS, "w:orient",
+                    if (layout.pageWidthTwips > layout.pageHeightTwips) "landscape" else "portrait")
+                val pageMargins = direct("pgMar") ?: xml.createElementNS(WORD_NS, "w:pgMar").also { section.appendChild(it) }
+                pageMargins.setAttributeNS(WORD_NS, "w:top", layout.topMarginTwips.toString())
+                pageMargins.setAttributeNS(WORD_NS, "w:bottom", layout.bottomMarginTwips.toString())
+                pageMargins.setAttributeNS(WORD_NS, "w:left", layout.leftMarginTwips.toString())
+                pageMargins.setAttributeNS(WORD_NS, "w:right", layout.rightMarginTwips.toString())
+                pageMargins.setAttributeNS(WORD_NS, "w:header", layout.headerDistanceTwips.toString())
+                pageMargins.setAttributeNS(WORD_NS, "w:footer", layout.footerDistanceTwips.toString())
                 serialize(xml)
             }
         }

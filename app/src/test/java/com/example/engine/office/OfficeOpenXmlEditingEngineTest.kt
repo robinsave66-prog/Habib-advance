@@ -526,6 +526,32 @@ class OfficeOpenXmlEditingEngineTest {
     }
 
 
+    @Test fun docxCanChangePageSizeOrientationAndMarginsNatively() {
+        val file = zip("docx-page-layout.docx", mapOf(
+            "word/document.xml" to """<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Text</w:t></w:r></w:p><w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:bottom="1440" w:left="1440" w:right="1440"/></w:sectPr></w:body></w:document>"""
+        ))
+        val out = runBlocking {
+            engine.setDocxPageLayout(Uri.fromFile(file),
+                DocxPageLayout(16838, 11906, 720, 720, 900, 900, 500, 500),
+                "docx-page-layout-edited.docx")
+        }
+        ZipFile(out).use { zip ->
+            val ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+            val xml = DocumentBuilderFactory.newInstance().apply { isNamespaceAware = true }
+                .newDocumentBuilder().parse(zip.getInputStream(zip.getEntry("word/document.xml")))
+            val pageSize = xml.getElementsByTagNameNS(ns, "pgSz").item(0) as org.w3c.dom.Element
+            assertEquals("16838", pageSize.getAttributeNS(ns, "w"))
+            assertEquals("11906", pageSize.getAttributeNS(ns, "h"))
+            assertEquals("landscape", pageSize.getAttributeNS(ns, "orient"))
+            val margins = xml.getElementsByTagNameNS(ns, "pgMar").item(0) as org.w3c.dom.Element
+            assertEquals("720", margins.getAttributeNS(ns, "top"))
+            assertEquals("900", margins.getAttributeNS(ns, "left"))
+            assertEquals("500", margins.getAttributeNS(ns, "header"))
+            assertTrue(zip.getInputStream(zip.getEntry("word/document.xml")).bufferedReader().readText().contains("Text"))
+        }
+    }
+
+
     private fun zip(name: String, entries: Map<String, String>): File {
         val file = File(context.cacheDir, name)
         ZipOutputStream(file.outputStream()).use { out ->
