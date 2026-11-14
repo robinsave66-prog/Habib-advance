@@ -21,7 +21,7 @@ class PdfSignatureStampEngine(private val context: Context) {
     ): File = withContext(Dispatchers.IO) {
         require(signaturePng.isNotEmpty()) { "The signature image is empty." }
         PDFBoxResourceLoader.init(context)
-        val source = File(context.cacheDir, "signature-stamp-source-\${System.nanoTime()}.pdf")
+        val source = File(context.cacheDir, "signature-stamp-source-${System.nanoTime()}.pdf")
         val directory = File(context.filesDir, "documents").apply { mkdirs() }
         val safeName = outputFileName.substringAfterLast('/').substringAfterLast('\\')
             .let { if (it.endsWith(".pdf", true)) it else "$it.pdf" }
