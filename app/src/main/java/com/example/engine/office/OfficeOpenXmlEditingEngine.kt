@@ -200,8 +200,11 @@ class OfficeOpenXmlEditingEngine(private val context: Context) {
                         ?: throw IllegalArgumentException("Workbook styles.xml is missing.")
                     val stylesXml = parse(packageZip.getInputStream(stylesEntry).use { it.readBytes() })
                     val cellXfs = stylesXml.getElementsByTagNameNS(SHEET_NS, "cellXfs").item(0) as? Element
-                        ?: throw IllegalArgumentException("Workbook cellXfs style table is missing.")
-                    (0 until cellXfs.childNodes.length).count { cellXfs.childNodes.item(it) is Element }
+                    val existingStyles = cellXfs?.let { node ->
+                        (0 until node.childNodes.length).count { node.childNodes.item(it) is Element }
+                    } ?: 0
+                    // appendXlsxStyle inserts a base XF when the style table is absent or empty.
+                    if (existingStyles == 0) 1 else existingStyles
                 }
                 rewriteZip(source, output) { name, bytes ->
                     when (name) {
@@ -269,6 +272,31 @@ class OfficeOpenXmlEditingEngine(private val context: Context) {
         xml.createElementNS(ns, "name").also { it.setAttribute("val", "Arial"); font.appendChild(it) }
         fonts.appendChild(font); count(fonts)
         val fills = ensure("fills")
+        if ((0 until fills.childNodes.length).none { fills.childNodes.item(it) is Element }) {
+            listOf("none", "gray125").forEach { patternType ->
+                val fill = xml.createElementNS(ns, "fill")
+                val pattern = xml.createElementNS(ns, "patternFill")
+                pattern.setAttribute("patternType", patternType)
+                fill.appendChild(pattern)
+                fills.appendChild(fill)
+            }
+            count(fills)
+        }
+        val borders = ensure("borders")
+        if ((0 until borders.childNodes.length).none { borders.childNodes.item(it) is Element }) {
+            borders.appendChild(xml.createElementNS(ns, "border"))
+            count(borders)
+        }
+        val baseStyles = ensure("cellStyleXfs")
+        if ((0 until baseStyles.childNodes.length).none { baseStyles.childNodes.item(it) is Element }) {
+            val base = xml.createElementNS(ns, "xf")
+            base.setAttribute("numFmtId", "0")
+            base.setAttribute("fontId", "0")
+            base.setAttribute("fillId", "0")
+            base.setAttribute("borderId", "0")
+            baseStyles.appendChild(base)
+            count(baseStyles)
+        }
         var fillId = 0
         if (format.fillColorHex != null) {
             val fill = xml.createElementNS(ns, "fill")

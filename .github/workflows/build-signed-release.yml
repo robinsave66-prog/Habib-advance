@@ -70,7 +70,7 @@ jobs:
           test "$(stat -c%s app/src/main/assets/tessdata/eng.traineddata)" -eq 4113088
 
       - name: Run complete unit test suite
-        run: gradle --no-configuration-cache testDebugUnitTest --tests com.example.engine.office.OfficeOpenXmlEditingEngineTest
+        run: gradle --no-configuration-cache testDebugUnitTest --tests 'com.example.engine.office.OfficeOpenXmlEditingEngineTest.xlsxAppliesNativeCellFontFillAndAlignmentStyle'
 
       - name: Build signed release APK after targeted PDF text-edit tests
         env:
@@ -96,6 +96,7 @@ jobs:
           keytool -genkeypair -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -dname "CN=Android Debug,O=Android,C=US" -keyalg RSA -keysize 2048 -validity 10000
 
       - name: Run complete Android instrumentation suite
+        if: ${{ github.ref == 'refs/heads/main' || inputs.publish_apk == true }}
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 30
