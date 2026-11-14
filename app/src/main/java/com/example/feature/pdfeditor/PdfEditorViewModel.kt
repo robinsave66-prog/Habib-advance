@@ -397,8 +397,9 @@ class PdfEditorViewModel(
             return
         }
 
-        // Native replacement preserves the original PDF font, size, color and text state.
-        // Requested styling controls apply to newly inserted overlay text, not this operation.
+        // Native replacement edits the original text-show run. Latin retains its active font;
+        // Bengali uses a searchable Type 3 glyph with a Unicode map. Text position and advance are preserved.
+        // Requested styling controls apply to new overlays and the separate redaction alternative.
         _status.value = EditorUiStatus.Exporting("Editing the original PDF text…")
         viewModelScope.launch {
             try {

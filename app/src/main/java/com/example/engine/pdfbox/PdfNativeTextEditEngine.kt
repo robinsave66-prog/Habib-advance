@@ -29,9 +29,10 @@ import java.io.FileOutputStream
  * Unsupported layouts are rejected instead of being covered with a white rectangle or
  * silently shifting the rest of the page.
  *
- * Form XObjects, Type 3 fonts, text separated by numeric kerning adjustments or different
- * text-show operators, scanned pages, subset/custom encodings, and complex-script shaping
- * are not supported by this first slice.
+ * Simple Latin replacement edits the original text operand. Bengali replacement uses a
+ * searchable Type 3 glyph with an embedded stencil and ToUnicode mapping, replacing one
+ * complete Tj run in the original content stream. Form XObjects, scanned pages, custom
+ * encodings without ToUnicode, and Bengali text split across TJ runs remain unsupported.
  */
 class PdfNativeTextEditEngine(private val context: Context) {
 
@@ -45,8 +46,15 @@ class PdfNativeTextEditEngine(private val context: Context) {
         require(pageIndex >= 0) { "Page index cannot be negative." }
         require(oldText.isNotBlank()) { "Select some existing PDF text first." }
         require(newText.isNotEmpty()) { "Replacement text cannot be empty." }
-        require(isSupportedSimpleText(oldText) && isSupportedSimpleText(newText)) {
-            "This native-edit mode supports simple Latin text and punctuation only. Bengali and complex-script PDF text editing are not supported yet."
+        val bengaliEdit = containsBengali(oldText) || containsBengali(newText)
+        if (bengaliEdit) {
+            require(containsBengali(oldText) && containsBengali(newText)) {
+                "Bengali native editing requires Bengali text in both the selected phrase and replacement."
+            }
+        } else {
+            require(isSupportedSimpleText(oldText) && isSupportedSimpleText(newText)) {
+                "This native-edit mode supports simple Latin text and punctuation."
+            }
         }
 
         PDFBoxResourceLoader.init(context)
@@ -62,6 +70,9 @@ class PdfNativeTextEditEngine(private val context: Context) {
                     "The selected page does not exist."
                 }
                 val page = document.getPage(pageIndex)
+                if (bengaliEdit) {
+                    PdfBengaliNativeTextEngine(context).replace(document, page, oldText, newText)
+                } else {
                 val parser = PDFStreamParser(page)
                 parser.parse()
                 val tokens = parser.tokens
@@ -166,6 +177,7 @@ class PdfNativeTextEditEngine(private val context: Context) {
                     ContentStreamWriter(stream).writeTokens(tokens)
                 }
                 page.setContents(rewritten)
+                }
                 document.save(output)
             }
             output
@@ -176,6 +188,9 @@ class PdfNativeTextEditEngine(private val context: Context) {
             source.delete()
         }
     }
+
+    private fun containsBengali(value: String): Boolean =
+        value.any { it.code in 0x0980..0x09FF }
 
     private fun isSupportedSimpleText(value: String): Boolean {
         if (value.isEmpty()) return false

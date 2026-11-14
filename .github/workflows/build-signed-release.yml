@@ -69,10 +69,11 @@ jobs:
           test "$(stat -c%s app/src/main/assets/tessdata/ben.traineddata)" -eq 855841
           test "$(stat -c%s app/src/main/assets/tessdata/eng.traineddata)" -eq 4113088
 
-      - name: Validate remaining Word, Excel and PowerPoint layout tests
-        run: gradle --no-configuration-cache testDebugUnitTest --tests 'com.example.engine.office.OfficeOpenXmlEditingEngineTest.docxCanChangePageSizeOrientationAndMarginsNatively' --tests 'com.example.engine.office.OfficeOpenXmlEditingEngineTest.xlsxCanSetRowHeightAndColumnWidthWithoutChangingCellValues' --tests 'com.example.engine.office.OfficeOpenXmlEditingEngineTest.pptxCanMoveAndResizeNamedPictureOrShapeAndResizeSlideCanvas' --tests 'com.example.engine.office.OfficeOpenXmlEditingEngineTest.xlsxCanHideAndShowAWorksheetButNeverHideTheLastVisibleSheet'
+      - name: Run complete unit test suite (final release only)
+        if: ${{ github.ref == 'refs/heads/main' || inputs.publish_apk == true }}
+        run: gradle --no-configuration-cache testDebugUnitTest
 
-      - name: Build signed release APK after targeted PDF text-edit tests
+      - name: Build signed release APK for targeted feature validation
         env:
           KEYSTORE_PATH: ${{ runner.temp }}/habib-advance-release.jks
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -94,6 +95,21 @@ jobs:
       - name: Create standard debug keystore for emulator tests
         run: |
           keytool -genkeypair -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -dname "CN=Android Debug,O=Android,C=US" -keyalg RSA -keysize 2048 -validity 10000
+
+      - name: Run only Bengali native text edit instrumentation test
+        if: ${{ github.ref == 'refs/heads/feature/open-source-document-engine' }}
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          target: aosp_atd
+          arch: x86
+          profile: pixel_2
+          cores: 2
+          ram-size: 2048M
+          heap-size: 512M
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          script: gradle --no-configuration-cache connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.example.engine.pdfbox.PdfNativeBengaliTextEditInstrumentedTest
 
       - name: Run complete Android instrumentation suite
         if: ${{ github.ref == 'refs/heads/main' || inputs.publish_apk == true }}

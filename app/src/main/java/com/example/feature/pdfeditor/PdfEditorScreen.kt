@@ -1032,7 +1032,7 @@ fun PdfEditorScreen(
                             shape = RoundedCornerShape(8.dp)
                         ) {
                             Text(
-                                "This edits the original PDF text object only when the selected simple-Latin text or supported punctuation is uniquely found in a Tj string or adjacent strings in one TJ array, and the replacement preserves its exact text advance. Bengali, complex scripts, scanned text, custom font encodings and unsupported PDF text layouts are not supported and will be rejected without changing the source. Native replacement preserves the original font, size and color. The styling controls below are used by the 'Redact and Replace' alternative and new text overlays.",
+                                "Latin text is edited directly in a unique Tj string or adjacent strings in one TJ array when the replacement preserves its exact text advance. Bengali is edited in one complete Tj run using a searchable Type 3 glyph with a Unicode map; it requires an embedded Unicode Type 0 font and preserves the original text position and advance. Scanned or outlined text, Bengali split across TJ runs, custom fonts without ToUnicode, Arabic and other complex scripts are not supported. The styling controls below are for the 'Redact and Replace' alternative and new text overlays.",
                                 modifier = Modifier.padding(12.dp),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onErrorContainer
