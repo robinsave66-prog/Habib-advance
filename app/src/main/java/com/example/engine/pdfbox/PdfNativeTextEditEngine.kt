@@ -13,6 +13,7 @@ import com.tom_roush.pdfbox.pdfwriter.ContentStreamWriter
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.pdmodel.common.PDStream
 import com.tom_roush.pdfbox.pdmodel.font.PDFont
+import com.tom_roush.pdfbox.pdmodel.font.PDType0Font
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -65,6 +66,8 @@ class PdfNativeTextEditEngine(private val context: Context) {
                 val tokens = parser.tokens
                 var activeFont: PDFont? = null
                 var activeFontSize = 0f
+                var characterSpacing = 0f
+                var wordSpacing = 0f
                 var replacements = 0
 
                 fun replaceOperand(original: COSString): COSString {
@@ -77,10 +80,16 @@ class PdfNativeTextEditEngine(private val context: Context) {
                     require(decoded.indexOf(oldText, first + oldText.length) < 0) {
                         "The selected text occurs more than once in one PDF text object. Select a more specific phrase."
                     }
-                    val originalWidth = font.getStringWidth(oldText)
-                    val replacementWidth = font.getStringWidth(newText)
-                    require(kotlin.math.abs(originalWidth - replacementWidth) <= 0.01f) {
-                        "The replacement has a different width in the original font. Layout-preserving edit was cancelled."
+                    // Include Tc and Tw in the horizontal text advance.
+                    fun textAdvance(value: String): Float {
+                        val glyphAdvance = font.getStringWidth(value) * activeFontSize / 1000f
+                        val characterAdvance = characterSpacing * value.length
+                        val wordAdvance = if (font is PDType0Font) 0f
+                            else wordSpacing * value.count { it == ' ' }
+                        return glyphAdvance + characterAdvance + wordAdvance
+                    }
+                    require(kotlin.math.abs(textAdvance(oldText) - textAdvance(newText)) <= 0.01f) {
+                        "The replacement has a different rendered advance in the original PDF text state. Layout-preserving edit was cancelled."
                     }
                     val updated = decoded.replaceRange(first, first + oldText.length, newText)
                     val encoded = font.encode(updated)
@@ -92,6 +101,12 @@ class PdfNativeTextEditEngine(private val context: Context) {
                     val token = tokens[index]
                     if (token is Operator) {
                         when (token.name) {
+                            "Tc" -> {
+                                characterSpacing = (tokens.getOrNull(index - 1) as? COSNumber)?.floatValue() ?: 0f
+                            }
+                            "Tw" -> {
+                                wordSpacing = (tokens.getOrNull(index - 1) as? COSNumber)?.floatValue() ?: 0f
+                            }
                             "Tf" -> {
                                 val fontName = tokens.getOrNull(index - 2) as? COSName
                                 val fontSize = tokens.getOrNull(index - 1) as? COSNumber

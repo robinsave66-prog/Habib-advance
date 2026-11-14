@@ -63,6 +63,46 @@ class PdfNativeTextEditEngineTest {
     }
 
     @Test
+    fun accountsForCharacterSpacingWhenCheckingReplacementAdvance() = runBlocking {
+        val spacedSource = File(context.cacheDir, "native-text-edit-character-spacing.pdf")
+        PDDocument().use { document ->
+            val page = PDPage(PDRectangle(420f, 600f))
+            document.addPage(page)
+            PDPageContentStream(document, page).use { stream ->
+                stream.beginText()
+                stream.setFont(PDType1Font.HELVETICA, 12f)
+                stream.setCharacterSpacing(8.004f)
+                stream.newLineAtOffset(40f, 540f)
+                stream.showText("ABC")
+                stream.endText()
+            }
+            document.save(spacedSource)
+        }
+        val output = engine.replaceText(Uri.fromFile(spacedSource), 0, "ABC", "AB", "native-character-spacing.pdf")
+        PDDocument.load(output).use { assertTrue(PDFTextStripper().getText(it).contains("AB")) }
+    }
+
+    @Test
+    fun accountsForWordSpacingWhenCheckingReplacementAdvance() = runBlocking {
+        val spacedSource = File(context.cacheDir, "native-text-edit-word-spacing.pdf")
+        PDDocument().use { document ->
+            val page = PDPage(PDRectangle(420f, 600f))
+            document.addPage(page)
+            PDPageContentStream(document, page).use { stream ->
+                stream.beginText()
+                stream.setFont(PDType1Font.HELVETICA, 12f)
+                stream.setWordSpacing(3.336f)
+                stream.newLineAtOffset(40f, 540f)
+                stream.showText("A B")
+                stream.endText()
+            }
+            document.save(spacedSource)
+        }
+        val output = engine.replaceText(Uri.fromFile(spacedSource), 0, "A B", "AB", "native-word-spacing.pdf")
+        PDDocument.load(output).use { assertTrue(PDFTextStripper().getText(it).contains("AB")) }
+    }
+
+    @Test
     fun rejectsDifferentWidthReplacementWithoutChangingSource() = runBlocking {
         var rejected = false
         try {
