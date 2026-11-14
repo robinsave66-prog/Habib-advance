@@ -151,6 +151,7 @@ fun PdfEditorScreen(
     var showSaveDialog by remember { mutableStateOf(false) }
     var showPageOperationsDialog by remember { mutableStateOf(false) }
     var showRedactionConfirm by remember { mutableStateOf(false) }
+    var showFlattenedReplaceConfirm by remember { mutableStateOf(false) }
     var pageSelectionInput by remember { mutableStateOf("1") }
     var saveFileNameInput by remember { mutableStateOf("Edited_${documentName ?: "Document.pdf"}") }
 
@@ -978,6 +979,38 @@ fun PdfEditorScreen(
         )
     }
 
+    if (showFlattenedReplaceConfirm) {
+        AlertDialog(
+            onDismissRequest = { showFlattenedReplaceConfirm = false },
+            title = { Text("Replace using permanent redaction?") },
+            text = {
+                Text(
+                    "This alternative permanently removes the selected area, then places the replacement text over it. Every page in the PDF will be rebuilt as a 300-DPI image. Existing searchable/selectable text and vector content throughout the document will be flattened. Bengali replacement text is rendered as an image and will not be searchable. This cannot be undone. Keep a backup of the original PDF."
+                )
+            },
+            confirmButton = {
+                Button(onClick = {
+                    showFlattenedReplaceConfirm = false
+                    viewModel.replaceSelectedWordsAsFlattenedOverlay(
+                        newText = textInput,
+                        fontSizePt = textSizePt,
+                        textColor = textColor,
+                        backgroundColor = textBgColor,
+                        isBold = textBold,
+                        isItalic = textItalic,
+                        isUnderline = textUnderline,
+                        textAlign = textAlign
+                    )
+                    showTextDialog = false
+                    Toast.makeText(context, "Replacing selected text with permanent redaction…", Toast.LENGTH_LONG).show()
+                }) { Text("Flatten and Replace") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showFlattenedReplaceConfirm = false }) { Text("Cancel") }
+            }
+        )
+    }
+
     // Insert or Edit Text Dialog (With Independent Text & Background Colors)
     if (showTextDialog) {
         AlertDialog(
@@ -1014,6 +1047,15 @@ fun PdfEditorScreen(
                         minLines = 2,
                         modifier = Modifier.fillMaxWidth().testTag("editor_text_input")
                     )
+
+                    if (selectedWords.isNotEmpty() && !isEditingExistingElement) {
+                        OutlinedButton(
+                            onClick = { showFlattenedReplaceConfirm = true },
+                            modifier = Modifier.fillMaxWidth().testTag("editor_flattened_replace_button")
+                        ) {
+                            Text("Alternative: Redact and Replace")
+                        }
+                    }
 
                     if (selectedWords.isEmpty() || isEditingExistingElement) {
                     // Font Size
