@@ -95,7 +95,7 @@ jobs:
         run: |
           keytool -genkeypair -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -dname "CN=Android Debug,O=Android,C=US" -keyalg RSA -keysize 2048 -validity 10000
 
-      - name: Run targeted Bengali font instrumentation test
+      - name: Run complete Android instrumentation suite
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 30

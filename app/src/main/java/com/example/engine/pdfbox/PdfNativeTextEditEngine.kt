@@ -29,8 +29,9 @@ import java.io.FileOutputStream
  * Unsupported layouts are rejected instead of being covered with a white rectangle or
  * silently shifting the rest of the page.
  *
- * Form XObjects, Type 3 fonts, text split across multiple TJ strings, scanned pages,
- * subset/custom encodings, and complex-script shaping are not supported by this first slice.
+ * Form XObjects, Type 3 fonts, text separated by numeric kerning adjustments or different
+ * text-show operators, scanned pages, subset/custom encodings, and complex-script shaping
+ * are not supported by this first slice.
  */
 class PdfNativeTextEditEngine(private val context: Context) {
 
