@@ -71,7 +71,7 @@ class PdfNativeTextEditEngineTest {
             PDPageContentStream(document, page).use { stream ->
                 stream.beginText()
                 stream.setFont(PDType1Font.HELVETICA, 12f)
-                stream.setCharacterSpacing(8.004f)
+                stream.setCharacterSpacing(-8.004f)
                 stream.newLineAtOffset(40f, 540f)
                 stream.showText("ABC")
                 stream.endText()
@@ -91,7 +91,7 @@ class PdfNativeTextEditEngineTest {
             PDPageContentStream(document, page).use { stream ->
                 stream.beginText()
                 stream.setFont(PDType1Font.HELVETICA, 12f)
-                stream.setWordSpacing(3.336f)
+                stream.setWordSpacing(-3.336f)
                 stream.newLineAtOffset(40f, 540f)
                 stream.showText("A B")
                 stream.endText()

@@ -69,7 +69,10 @@ jobs:
           test "$(stat -c%s app/src/main/assets/tessdata/ben.traineddata)" -eq 855841
           test "$(stat -c%s app/src/main/assets/tessdata/eng.traineddata)" -eq 4113088
 
-      - name: Build signed release APK (reuse previously verified unit-test results)
+      - name: Run targeted native PDF text-edit unit tests
+        run: gradle --no-configuration-cache testDebugUnitTest --tests com.example.engine.pdfbox.PdfNativeTextEditEngineTest
+
+      - name: Build signed release APK after targeted PDF text-edit tests
         env:
           KEYSTORE_PATH: ${{ runner.temp }}/habib-advance-release.jks
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
