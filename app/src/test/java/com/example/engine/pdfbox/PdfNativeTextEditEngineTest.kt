@@ -149,6 +149,7 @@ class PdfNativeTextEditEngineTest {
             }
             document.save(splitSource)
         }
+        val originalEndX = findGlyphX(splitSource, "E")
         val output = engine.replaceText(
             Uri.fromFile(splitSource), 0, "ABC", "WWW", "native-kerned-split-tj.pdf"
         )
@@ -157,6 +158,11 @@ class PdfNativeTextEditEngineTest {
             assertTrue(text.contains("Start WWW End"))
             assertFalse(text.contains("Start ABC End"))
         }
+        val editedEndX = findGlyphX(output, "E")
+        assertTrue(
+            "The suffix position must remain unchanged across a kerning-separated replacement (old=$originalEndX, new=$editedEndX)",
+            kotlin.math.abs(originalEndX - editedEndX) < 0.1f
+        )
     }
 
     @Test
