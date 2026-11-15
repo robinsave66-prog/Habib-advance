@@ -1,5 +1,14 @@
 # Open-source document engine notices
 
+## PdfCraft native PDF engine
+
+- Project: PdfCraft Android 0.18.1 (pinned source revision `6873a87e0acecae61c0ac02422deb99e890abdf7`)
+- Upstream: https://github.com/artcraft-android/pdfcraft-android
+- License: MIT OR Apache License 2.0
+- Scope in Habib Advance Editor: paragraph discovery, in-place native text rewriting, paragraph reflow, font fallback, nested text-bearing Form XObject handling, and verified Save As on Android 10 (API 29) and later.
+- The native library is built from the pinned upstream source with Rust/Cargo NDK and UniFFI. Its Android target API is 29. Android 8/8.1 (API 26-27) and Android 9 (API 28) retain the conservative PDFBox text-edit fallback; they do not receive PdfCraft's advanced editing support.
+- The app keeps its existing Compose UI and PDFBox page viewer. PdfCraft is used for paragraph-level text replacement; it does not replace every PDF subsystem in the app.
+
 ## PDFBox-Android
 
 - Artifact: `com.tom-roush:pdfbox-android:2.0.27.0`
