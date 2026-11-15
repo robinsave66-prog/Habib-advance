@@ -2,6 +2,80 @@ import com.google.gms.googleservices.GoogleServicesPlugin.MissingGoogleServicesS
 import java.io.File
 import java.net.URL
 import java.security.MessageDigest
+import javax.inject.Inject
+import org.gradle.process.ExecOperations
+
+
+private const val PDFCRAFT_REVISION = "6873a87e0acecae61c0ac02422deb99e890abdf7"
+private const val PDFCRAFT_MIN_API = 29
+
+abstract class PreparePdfCraftSource : DefaultTask() {
+  @get:Inject abstract val execOperations: ExecOperations
+  @get:Input abstract val revision: Property<String>
+  @get:OutputDirectory abstract val outputDir: DirectoryProperty
+
+  @TaskAction fun checkout() {
+    val dir = outputDir.get().asFile
+    if (!File(dir, ".git").isDirectory) {
+      dir.deleteRecursively()
+      execOperations.exec {
+        commandLine("git", "clone", "--filter=blob:none", "https://github.com/artcraft-android/pdfcraft-android.git", dir.absolutePath)
+      }
+    }
+    execOperations.exec {
+      workingDir(dir)
+      commandLine("git", "fetch", "--depth", "1", "origin", revision.get())
+    }
+    execOperations.exec {
+      workingDir(dir)
+      commandLine("git", "checkout", "--detach", revision.get())
+    }
+  }
+}
+
+abstract class PdfCraftCargoBuild : DefaultTask() {
+  @get:Inject abstract val execOperations: ExecOperations
+  @get:Input abstract val cargo: Property<String>
+  @get:Input abstract val workspacePath: Property<String>
+  @get:Input abstract val ndkPath: Property<String>
+  @get:Input abstract val abis: ListProperty<String>
+  @get:OutputDirectory abstract val outputDir: DirectoryProperty
+
+  @TaskAction fun buildNative() {
+    val targets = abis.get().flatMap { listOf("-t", it) }
+    val out = outputDir.get().asFile.absolutePath
+    execOperations.exec {
+      workingDir(workspacePath.get())
+      environment("ANDROID_NDK_HOME", ndkPath.get())
+      commandLine(
+        listOf(cargo.get(), "ndk") + targets +
+          listOf("--platform", PDFCRAFT_MIN_API.toString(), "-o", out, "build", "--release", "--locked", "-p", "pdfcraft-android", "--lib")
+      )
+    }
+    File(out).walk().filter { it.isFile && it.name != "libpdfcraft_android.so" }.forEach { it.delete() }
+  }
+}
+
+abstract class PdfCraftUniffiBindgen : DefaultTask() {
+  @get:Inject abstract val execOperations: ExecOperations
+  @get:Input abstract val cargo: Property<String>
+  @get:Input abstract val workspacePath: Property<String>
+  @get:InputFile @get:PathSensitive(PathSensitivity.NONE) abstract val library: RegularFileProperty
+  @get:OutputDirectory abstract val outputDir: DirectoryProperty
+
+  @TaskAction fun generateBindings() {
+    val out = outputDir.get().asFile
+    out.deleteRecursively()
+    out.mkdirs()
+    execOperations.exec {
+      workingDir(workspacePath.get())
+      commandLine(
+        cargo.get(), "run", "--quiet", "--locked", "-p", "pdfcraft-android-bindgen", "--",
+        "generate", library.get().asFile.absolutePath, "--language", "kotlin", "--out-dir", out.absolutePath, "--no-format"
+      )
+    }
+  }
+}
 
 plugins {
   alias(libs.plugins.android.application)
@@ -14,10 +88,12 @@ plugins {
 android {
   namespace = "com.example"
   compileSdk { version = release(36) { minorApiLevel = 1 } }
+  ndkVersion = "29.0.14206865"
 
   defaultConfig {
     applicationId = "com.habib.advanceeditor"
     minSdk = 26
+    ndk { abiFilters.addAll(listOf("arm64-v8a", "armeabi-v7a", "x86_64")) }
     targetSdk = 36
     versionCode = 7
     versionName = "1.6"
@@ -135,6 +211,8 @@ dependencies {
   implementation("cz.adaptech.tesseract4android:tesseract4android:4.9.0")
   // Apache-2.0 PDF object and page manipulation engine.
   implementation("com.tom-roush:pdfbox-android:2.0.27.0")
+  // PdfCraft (MIT OR Apache-2.0) native paragraph editor; UniFFI uses JNA.
+  implementation("net.java.dev.jna:jna:5.19.1@aar")
   // implementation(libs.play.services.location)
   implementation(libs.retrofit)
   testImplementation(libs.androidx.compose.ui.test.junit4)
@@ -154,6 +232,36 @@ dependencies {
   "ksp"(libs.moshi.kotlin.codegen)
 }
 
+
+
+val pdfCraftSource = tasks.register<PreparePdfCraftSource>("preparePdfCraftSource") {
+  revision.set(PDFCRAFT_REVISION)
+  outputDir.set(layout.buildDirectory.dir("pdfcraft-source"))
+  outputs.upToDateWhen { false }
+}
+
+androidComponents {
+  onVariants { variant ->
+    val variantName = variant.name.replaceFirstChar { it.uppercase() }
+    val cargoBuild = tasks.register<PdfCraftCargoBuild>("buildPdfCraftNative$variantName") {
+      cargo.set("cargo")
+      workspacePath.set(pdfCraftSource.flatMap { it.outputDir }.map { it.asFile.absolutePath })
+      ndkPath.set(sdkComponents.ndkDirectory.map { it.asFile.absolutePath })
+      abis.set(listOf("arm64-v8a", "armeabi-v7a", "x86_64"))
+      outputDir.set(layout.buildDirectory.dir("generated/pdfcraft/jniLibs/${variant.name}"))
+      dependsOn(pdfCraftSource)
+      outputs.upToDateWhen { false }
+    }
+    val bindgen = tasks.register<PdfCraftUniffiBindgen>("generatePdfCraftKotlin$variantName") {
+      cargo.set("cargo")
+      workspacePath.set(pdfCraftSource.flatMap { it.outputDir }.map { it.asFile.absolutePath })
+      library.set(cargoBuild.flatMap { it.outputDir.file("arm64-v8a/libpdfcraft_android.so") })
+      outputDir.set(layout.buildDirectory.dir("generated/pdfcraft/kotlin/${variant.name}"))
+    }
+    variant.sources.jniLibs?.addGeneratedSourceDirectory(cargoBuild, PdfCraftCargoBuild::outputDir)
+    variant.sources.java?.addGeneratedSourceDirectory(bindgen, PdfCraftUniffiBindgen::outputDir)
+  }
+}
 
 // Download pinned official tessdata_fast models so the installed APK works offline.
 val ocrModelSpecs = listOf(
