@@ -6,6 +6,14 @@ import javax.inject.Inject
 import org.gradle.process.ExecOperations
 
 
+plugins {
+  alias(libs.plugins.android.application)
+  alias(libs.plugins.kotlin.compose)
+  alias(libs.plugins.google.devtools.ksp)
+  alias(libs.plugins.secrets)
+  alias(libs.plugins.google.services)
+}
+
 private const val PDFCRAFT_REVISION = "6873a87e0acecae61c0ac02422deb99e890abdf7"
 private const val PDFCRAFT_MIN_API = 29
 
@@ -77,13 +85,6 @@ abstract class PdfCraftUniffiBindgen : DefaultTask() {
   }
 }
 
-plugins {
-  alias(libs.plugins.android.application)
-  alias(libs.plugins.kotlin.compose)
-  alias(libs.plugins.google.devtools.ksp)
-  alias(libs.plugins.secrets)
-  alias(libs.plugins.google.services)
-}
 
 android {
   namespace = "com.example"
