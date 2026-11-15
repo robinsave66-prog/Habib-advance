@@ -10,6 +10,7 @@ import com.tom_roush.pdfbox.pdmodel.PDPageContentStream
 import com.tom_roush.pdfbox.pdmodel.common.PDRectangle
 import com.tom_roush.pdfbox.pdmodel.font.PDType1Font
 import com.tom_roush.pdfbox.text.PDFTextStripper
+import com.tom_roush.pdfbox.text.TextPosition
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -167,20 +168,69 @@ class PdfNativeTextEditEngineTest {
     }
 
     @Test
-    fun rejectsDifferentWidthReplacementWithoutChangingSource() = runBlocking {
-        var rejected = false
-        try {
-            engine.replaceText(
-                Uri.fromFile(source), 0, "ABC", "WWW", "native-text-edit-width-rejected.pdf"
-            )
-        } catch (_: IllegalArgumentException) {
-            rejected = true
+    fun preservesFollowingGlyphPositionWhenReplacementHasDifferentWidth() = runBlocking {
+        val originalEndX = findGlyphX(source, "E")
+        val output = engine.replaceText(
+            Uri.fromFile(source), 0, "ABC", "WWW", "native-text-edit-variable-width.pdf"
+        )
+        PDDocument.load(output).use { edited ->
+            val text = PDFTextStripper().getText(edited)
+            assertTrue(text.contains("Start WWW End"))
+            assertFalse(text.contains("Start ABC End"))
         }
-        assertTrue(rejected)
+        val editedEndX = findGlyphX(output, "E")
+        assertTrue(
+            "The TJ adjustment must keep the following text at its original x coordinate (old=$originalEndX, new=$editedEndX)",
+            kotlin.math.abs(originalEndX - editedEndX) < 0.1f
+        )
         PDDocument.load(source).use { original ->
-            val text = PDFTextStripper().getText(original)
-            assertTrue(text.contains("Start ABC End"))
-            assertFalse(text.contains("Start WWW End"))
+            assertTrue(PDFTextStripper().getText(original).contains("Start ABC End"))
         }
+    }
+
+    @Test
+    fun preservesFollowingGlyphPositionForDifferentWidthTextSplitAcrossAdjacentTjStrings() = runBlocking {
+        val splitSource = File(context.cacheDir, "native-text-edit-variable-split-tj.pdf")
+        PDDocument().use { document ->
+            val page = PDPage(PDRectangle(420f, 600f))
+            document.addPage(page)
+            PDPageContentStream(document, page).use { stream ->
+                stream.beginText()
+                stream.setFont(PDType1Font.HELVETICA, 12f)
+                stream.newLineAtOffset(40f, 540f)
+                stream.showTextWithPositioning(arrayOf<Any>("Start A", "BC End"))
+                stream.endText()
+            }
+            document.save(splitSource)
+        }
+        val originalEndX = findGlyphX(splitSource, "E")
+        val output = engine.replaceText(
+            Uri.fromFile(splitSource), 0, "ABC", "WWW", "native-variable-split-tj.pdf"
+        )
+        PDDocument.load(output).use { edited ->
+            val text = PDFTextStripper().getText(edited)
+            assertTrue(text.contains("Start WWW End"))
+            assertFalse(text.contains("Start ABC End"))
+        }
+        val editedEndX = findGlyphX(output, "E")
+        assertTrue(
+            "The TJ array rewrite must preserve the suffix position (old=$originalEndX, new=$editedEndX)",
+            kotlin.math.abs(originalEndX - editedEndX) < 0.1f
+        )
+    }
+
+    private fun findGlyphX(file: File, glyph: String): Float {
+        var x = Float.NaN
+        PDDocument.load(file).use { document ->
+            val stripper = object : PDFTextStripper() {
+                override fun processTextPosition(text: TextPosition) {
+                    if (text.unicode == glyph && !x.isFinite()) x = text.xDirAdj
+                    super.processTextPosition(text)
+                }
+            }
+            stripper.getText(document)
+        }
+        check(x.isFinite()) { "Could not locate glyph '$glyph' in the test PDF." }
+        return x
     }
 }

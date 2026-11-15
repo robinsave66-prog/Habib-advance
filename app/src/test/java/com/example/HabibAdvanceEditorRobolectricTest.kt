@@ -21,6 +21,7 @@ import com.example.engine.renderer.AndroidNativePdfRenderer
 import com.example.feature.imagestudio.ImageItem
 import com.example.feature.imagestudio.MultiImageToPdfEngine
 import com.example.feature.imagestudio.PdfPageSettings
+import com.example.feature.pdfeditor.EditorUiStatus
 import com.example.feature.pdfeditor.PdfEditorViewModel
 import com.example.feature.pdfeditor.PdfExportEngine
 import kotlinx.coroutines.flow.first
@@ -462,20 +463,26 @@ class HabibAdvanceEditorRobolectricTest {
     }
 
     @Test
-    fun testReplaceSelectedWordsRespectsNullBackground() {
+    fun testReplaceSelectedWordsRequiresExistingPdfSelectionAndNeverCreatesOverlay() {
         val viewModel = PdfEditorViewModel(context)
+        var completed: Boolean? = null
+        var failureMessage: String? = null
+
         viewModel.replaceSelectedWords(
-            newText = "New Clean Text Without Unwanted Box",
+            newText = "Replacement must target existing PDF text",
             fontSizePt = 16f,
             textColor = 0xFF000000,
-            backgroundColor = null // Null background must be respected!
+            backgroundColor = null,
+            onComplete = { success, message ->
+                completed = success
+                failureMessage = message
+            }
         )
 
-        val elements = viewModel.elements.value[0].orEmpty()
-        assertTrue(elements.isNotEmpty())
-        val textElem = elements.first() as TextElement
-        assertEquals(null, textElem.backgroundColor)
-        assertEquals("New Clean Text Without Unwanted Box", textElem.text)
+        assertEquals(false, completed)
+        assertTrue(failureMessage.orEmpty().contains("Select existing PDF text"))
+        assertTrue(viewModel.elements.value.values.flatten().isEmpty())
+        assertTrue(viewModel.status.value is EditorUiStatus.Error)
     }
 
     @Test

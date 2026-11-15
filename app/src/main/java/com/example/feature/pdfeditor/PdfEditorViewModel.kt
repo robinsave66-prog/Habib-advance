@@ -371,25 +371,35 @@ class PdfEditorViewModel(
         isBold: Boolean = false,
         isItalic: Boolean = false,
         isUnderline: Boolean = false,
-        textAlign: String = "LEFT"
+        textAlign: String = "LEFT",
+        onComplete: (Boolean, String?) -> Unit = { _, _ -> }
     ) {
         val words = _selectedWords.value
         if (words.isEmpty()) {
-            _status.value = EditorUiStatus.Error("Select existing PDF text before editing it.")
+            val message = "Select existing PDF text before editing it."
+            _status.value = EditorUiStatus.Error(message)
+            onComplete(false, message)
             return
         }
         if (newText.isBlank()) {
-            _status.value = EditorUiStatus.Error("Enter replacement text.")
+            val message = "Enter replacement text."
+            _status.value = EditorUiStatus.Error(message)
+            onComplete(false, message)
             return
         }
-        val source = sourceDocUri ?: run {
-            _status.value = EditorUiStatus.Error("The source PDF is not available for text editing.")
+        val source = sourceDocUri
+        if (source == null) {
+            val message = "The source PDF is not available for text editing."
+            _status.value = EditorUiStatus.Error(message)
+            onComplete(false, message)
             return
         }
         val page = _currentPage.value
         val oldText = words.joinToString(" ") { it.text }.trim()
         if (oldText.isBlank()) {
-            _status.value = EditorUiStatus.Error("No readable PDF text was selected.")
+            val message = "No readable PDF text was selected."
+            _status.value = EditorUiStatus.Error(message)
+            onComplete(false, message)
             return
         }
 
@@ -418,20 +428,26 @@ class PdfEditorViewModel(
                         _pageDimensions.value =
                             renderer.getPageDimensions(_currentPage.value) ?: Pair(595, 842)
                         _status.value = EditorUiStatus.Loaded(loaded.documentInfo)
+                        onComplete(true, null)
                     }
-                    is PdfLoadResult.PasswordRequired ->
+                    is PdfLoadResult.PasswordRequired -> {
                         _status.value = EditorUiStatus.Error(loaded.message)
-                    is PdfLoadResult.Corrupted ->
+                        onComplete(false, loaded.message)
+                    }
+                    is PdfLoadResult.Corrupted -> {
                         _status.value = EditorUiStatus.Error(loaded.message)
-                    is PdfLoadResult.Error ->
-                        _status.value = EditorUiStatus.Error(
-                            loaded.throwable.localizedMessage ?: "Could not reopen the edited PDF."
-                        )
+                        onComplete(false, loaded.message)
+                    }
+                    is PdfLoadResult.Error -> {
+                        val message = loaded.throwable.localizedMessage ?: "Could not reopen the edited PDF."
+                        _status.value = EditorUiStatus.Error(message)
+                        onComplete(false, message)
+                    }
                 }
             } catch (error: Exception) {
-                _status.value = EditorUiStatus.Error(
-                    error.localizedMessage ?: "Native PDF text editing failed."
-                )
+                val message = error.localizedMessage ?: "Native PDF text editing failed."
+                _status.value = EditorUiStatus.Error(message)
+                onComplete(false, message)
             }
         }
     }
