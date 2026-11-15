@@ -86,7 +86,7 @@ class PdfNativeTextEditEngine(private val context: Context) {
 
                 fun replaceOperand(
                     decoded: String,
-                    internalAdjustments: List<COSNumber> = emptyList()
+                    adjustments: List<Pair<Int, COSNumber>> = emptyList()
                 ): COSArray? {
                     val first = decoded.indexOf(oldText)
                     if (first < 0) return null
@@ -97,9 +97,6 @@ class PdfNativeTextEditEngine(private val context: Context) {
                         "The selected text occurs more than once in one PDF text object. Select a more specific phrase."
                     }
 
-                    // PDF TJ numbers compensate for changed glyph advances. This lets us
-                    // replace a phrase with a different width while keeping the following
-                    // glyphs at their original page coordinates.
                     fun textAdvance(value: String): Float {
                         val glyphAdvance = font.getStringWidth(value) * activeFontSize / 1000f
                         val characterAdvance = characterSpacing * value.codePointCount(0, value.length)
@@ -108,20 +105,46 @@ class PdfNativeTextEditEngine(private val context: Context) {
                         return glyphAdvance + characterAdvance + wordAdvance
                     }
 
-                    val prefix = decoded.substring(0, first)
-                    val suffix = decoded.substring(first + oldText.length)
+                    val end = first + oldText.length
                     val advanceCorrection = (textAdvance(newText) - textAdvance(oldText)) *
                         1000f / activeFontSize
                     val replacement = COSArray()
-                    if (prefix.isNotEmpty()) replacement.add(COSString(font.encode(prefix)))
+
+                    // Keep every original TJ adjustment in its original prefix/suffix
+                    // position. Adjustments inside the replaced phrase are retained after
+                    // the new glyphs so their total advance remains part of the phrase.
+                    var prefixCursor = 0
+                    adjustments.filter { it.first <= first }.forEach { (position, number) ->
+                        val safePosition = position.coerceIn(prefixCursor, first)
+                        if (safePosition > prefixCursor) {
+                            replacement.add(COSString(font.encode(decoded.substring(prefixCursor, safePosition))))
+                        }
+                        replacement.add(number)
+                        prefixCursor = safePosition
+                    }
+                    if (first > prefixCursor) {
+                        replacement.add(COSString(font.encode(decoded.substring(prefixCursor, first))))
+                    }
+
                     replacement.add(COSString(font.encode(newText)))
-                    // Preserve the original TJ kerning adjustments that occurred inside
-                    // the selected phrase, then compensate for the changed glyph advance.
-                    internalAdjustments.forEach { replacement.add(it) }
+                    adjustments.filter { it.first > first && it.first <= end }
+                        .forEach { replacement.add(it.second) }
                     if (kotlin.math.abs(advanceCorrection) > 0.01f) {
                         replacement.add(COSFloat(advanceCorrection))
                     }
-                    if (suffix.isNotEmpty()) replacement.add(COSString(font.encode(suffix)))
+
+                    var suffixCursor = end
+                    adjustments.filter { it.first > end }.forEach { (position, number) ->
+                        val safePosition = position.coerceIn(suffixCursor, decoded.length)
+                        if (safePosition > suffixCursor) {
+                            replacement.add(COSString(font.encode(decoded.substring(suffixCursor, safePosition))))
+                        }
+                        replacement.add(number)
+                        suffixCursor = safePosition
+                    }
+                    if (suffixCursor < decoded.length) {
+                        replacement.add(COSString(font.encode(decoded.substring(suffixCursor))))
+                    }
                     replacements += 1
                     return replacement
                 }
@@ -187,10 +210,7 @@ class PdfNativeTextEditEngine(private val context: Context) {
                                         val first = combined.indexOf(oldText)
                                         if (first >= 0) {
                                             val end = first + oldText.length
-                                            val internal = adjustments
-                                                .filter { (position, _) -> position > first && position <= end }
-                                                .map { it.second }
-                                            val updated = replaceOperand(combined.toString(), internal)
+                                            val updated = replaceOperand(combined.toString(), adjustments)
                                             if (updated != null) {
                                                 for (replacementIndex in 0 until updated.size()) {
                                                     rewrittenArray.add(updated.getObject(replacementIndex))
