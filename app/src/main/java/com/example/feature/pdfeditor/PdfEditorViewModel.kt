@@ -219,14 +219,21 @@ class PdfEditorViewModel(
 
     // --- PDF Text Hit-Testing, Selection & Contextual Operations ---
 
-    fun onLongPressAtPoint(touchPtX: Float, touchPtY: Float) {
+    fun onTapAtPoint(touchPtX: Float, touchPtY: Float) {
         val page = _currentPage.value
         val words = _detectedWords.value[page].orEmpty()
         val hitWord = PdfTextExtractionEngine.findWordAt(touchPtX, touchPtY, words)
         if (hitWord != null) {
             _selectedWords.value = listOf(hitWord)
             _selectedElementId.value = null // Deselect overlay elements
+        } else {
+            _selectedWords.value = emptyList()
+            _selectedElementId.value = null
         }
+    }
+
+    fun onLongPressAtPoint(touchPtX: Float, touchPtY: Float) {
+        onTapAtPoint(touchPtX, touchPtY)
     }
 
     fun expandSelectionToWord(targetWord: DetectedPdfWord) {

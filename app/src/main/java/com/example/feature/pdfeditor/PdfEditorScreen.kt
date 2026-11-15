@@ -716,9 +716,10 @@ fun PdfEditorScreen(
                                     .pointerInput(interactionMode) {
                                         if (interactionMode != EditorInteractionMode.PAGE_NAV) {
                                             detectTapGestures(
-                                                onTap = {
-                                                    viewModel.selectElement(null)
-                                                    viewModel.clearWordSelection()
+                                                onTap = { offset ->
+                                                    // A single tap selects PDF text and reveals the contextual Edit action.
+                                                    // Tapping blank page space clears the current selection.
+                                                    viewModel.onTapAtPoint(offset.x / pxPerPt, offset.y / pxPerPt)
                                                 },
                                                 onDoubleTap = {
                                                     zoomScale = if (zoomScale > 1.2f) 1.0f else 2.0f
