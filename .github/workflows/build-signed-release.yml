@@ -117,7 +117,7 @@ jobs:
         with:
           api-level: 30
           target: aosp_atd
-          arch: x86
+          arch: x86_64
           profile: pixel_2
           cores: 2
           ram-size: 2048M
