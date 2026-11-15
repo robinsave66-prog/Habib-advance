@@ -13,7 +13,7 @@ import androidx.core.content.FileProvider
 import com.example.engine.pdfbox.PdfBoxDocumentEngine
 import com.example.engine.pdfbox.PdfBoxOverlayExportEngine
 import com.example.engine.pdfbox.PdfSecureRedactionEngine
-import com.example.engine.pdfbox.PdfNativeTextEditEngine
+import com.example.engine.pdfbox.PdfTextEditEngine
 import com.example.engine.core.IPdfRenderer
 import com.example.engine.core.PdfDocumentInfo
 import com.example.engine.core.PdfLoadResult
@@ -70,7 +70,7 @@ class PdfEditorViewModel(
     private val pageEngine = PdfBoxDocumentEngine(context)
     private val overlayExportEngine = PdfBoxOverlayExportEngine(context)
     private val secureRedactionEngine = PdfSecureRedactionEngine(context)
-    private val nativeTextEditEngine = PdfNativeTextEditEngine(context)
+    private val nativeTextEditEngine = PdfTextEditEngine(context)
 
     private val _status = MutableStateFlow<EditorUiStatus>(EditorUiStatus.Idle)
     val status: StateFlow<EditorUiStatus> = _status.asStateFlow()
