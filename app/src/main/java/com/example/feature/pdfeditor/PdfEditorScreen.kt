@@ -1074,17 +1074,11 @@ fun PdfEditorScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     if (selectedWords.isNotEmpty() && !isEditingExistingElement) {
-                        Surface(
-                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.45f),
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Text(
-                                "Latin text is edited directly in a unique Tj string or adjacent strings in one TJ array when the replacement preserves its exact text advance. Bengali is edited in one complete Tj run using a searchable Type 3 glyph with a Unicode map; it requires an embedded Unicode Type 0 font and preserves the original text position and advance. Scanned or outlined text, Bengali split across TJ runs, custom fonts without ToUnicode, Arabic and other complex scripts are not supported. The styling controls below are for the 'Redact and Replace' alternative and new text overlays.",
-                                modifier = Modifier.padding(12.dp),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onErrorContainer
-                            )
-                        }
+                        Text(
+                            "The selected area will be covered with a white editable text overlay. The original PDF page remains intact, and you can edit or move the replacement afterward.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                     OutlinedTextField(
                         value = textInput,
