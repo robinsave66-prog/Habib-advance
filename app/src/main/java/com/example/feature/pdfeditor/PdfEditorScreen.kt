@@ -151,7 +151,6 @@ fun PdfEditorScreen(
     var showSaveDialog by remember { mutableStateOf(false) }
     var showPageOperationsDialog by remember { mutableStateOf(false) }
     var showRedactionConfirm by remember { mutableStateOf(false) }
-    var showFlattenedReplaceConfirm by remember { mutableStateOf(false) }
     var inlineEditingText by remember { mutableStateOf(false) }
     var pageSelectionInput by remember { mutableStateOf("1") }
     var saveFileNameInput by remember { mutableStateOf("Edited_${documentName ?: "Document.pdf"}") }
@@ -168,17 +167,8 @@ fun PdfEditorScreen(
     var textItalic by remember { mutableStateOf(false) }
     var textUnderline by remember { mutableStateOf(false) }
     var textAlign by remember { mutableStateOf("LEFT") }
-
-    // Keep source-PDF text editing anchored to the selected words on the current page.
-    LaunchedEffect(status, inlineEditingText) {
-        if (inlineEditingText) {
-            when (status) {
-                is EditorUiStatus.Error -> showFlattenedReplaceConfirm = true
-                is EditorUiStatus.Loaded -> if (selectedWords.isEmpty()) inlineEditingText = false
-                else -> Unit
-            }
-        }
-    }
+    val inlineEditingElement = elementsMap[currentPage].orEmpty()
+        .firstOrNull { it.id == editingElementId } as? TextElement
 
     // Shape Dialog State
     var showShapeDialog by remember { mutableStateOf(false) }
@@ -359,7 +349,8 @@ fun PdfEditorScreen(
                                             textItalic = selectedItem.isItalic
                                             textUnderline = selectedItem.isUnderline
                                             textAlign = selectedItem.textAlign
-                                            showTextDialog = true
+                                            inlineEditingText = true
+                                            showTextDialog = false
                                         },
                                         modifier = Modifier.size(32.dp).testTag("ribbon_edit_text_button")
                                     ) {
@@ -815,12 +806,17 @@ fun PdfEditorScreen(
                                     }
 
                                     // 3. Inline PDF text editor: edit directly over the selected page text.
-                                    if (inlineEditingText && selectedWords.isNotEmpty()) {
-                                        val editBounds = android.graphics.RectF(
+                                    if (inlineEditingText && (selectedWords.isNotEmpty() || inlineEditingElement != null)) {
+                                        val editBounds = if (selectedWords.isNotEmpty()) android.graphics.RectF(
                                             selectedWords.minOf { it.bounds.left },
                                             selectedWords.minOf { it.bounds.top },
                                             selectedWords.maxOf { it.bounds.right },
                                             selectedWords.maxOf { it.bounds.bottom }
+                                        ) else android.graphics.RectF(
+                                            inlineEditingElement!!.x,
+                                            inlineEditingElement.y,
+                                            inlineEditingElement.x + inlineEditingElement.width,
+                                            inlineEditingElement.y + inlineEditingElement.height
                                         )
                                         val editorX = with(density) { (editBounds.left * pxPerPt).toDp() }
                                             .coerceIn(0.dp, (fittedWidthDp - 260.dp).coerceAtLeast(0.dp))
@@ -848,19 +844,34 @@ fun PdfEditorScreen(
                                                 horizontalArrangement = Arrangement.End,
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
-                                                TextButton(onClick = { inlineEditingText = false }) { Text("Cancel") }
+                                                TextButton(onClick = { inlineEditingText = false; editingElementId = null }) { Text("Cancel") }
                                                 Button(
                                                     onClick = {
-                                                        viewModel.replaceSelectedWords(
-                                                            newText = textInput,
-                                                            fontSizePt = textSizePt,
-                                                            textColor = textColor,
-                                                            backgroundColor = textBgColor,
-                                                            isBold = textBold,
-                                                            isItalic = textItalic,
-                                                            isUnderline = textUnderline,
-                                                            textAlign = textAlign
-                                                        )
+                                                        if (inlineEditingElement != null && editingElementId != null) {
+                                                            viewModel.updateTextElement(
+                                                                elementId = editingElementId!!,
+                                                                newText = textInput,
+                                                                fontSizePt = textSizePt,
+                                                                textColor = textColor,
+                                                                isBold = textBold,
+                                                                isItalic = textItalic,
+                                                                isUnderline = textUnderline,
+                                                                backgroundColor = textBgColor,
+                                                                textAlign = textAlign
+                                                            )
+                                                        } else {
+                                                            viewModel.replaceSelectedWords(
+                                                                newText = textInput,
+                                                                fontSizePt = textSizePt,
+                                                                textColor = textColor,
+                                                                backgroundColor = textBgColor ?: 0xFFFFFFFF,
+                                                                isBold = textBold,
+                                                                isItalic = textItalic,
+                                                                isUnderline = textUnderline,
+                                                                textAlign = textAlign
+                                                            )
+                                                        }
+                                                        inlineEditingText = false
                                                     },
                                                     enabled = textInput.isNotBlank(),
                                                     modifier = Modifier.testTag("pdf_inline_text_save")
@@ -987,7 +998,7 @@ fun PdfEditorScreen(
                                         textInput = selectedWords.joinToString(" ") { it.text }
                                         textSizePt = first.fontSizePt
                                         textColor = first.textColor
-                                        textBgColor = null // Respects transparent background by default
+                                        textBgColor = 0xFFFFFFFF // White page patch; never use black redaction for text replacement
                                         textBold = first.isBold
                                         textItalic = first.isItalic
                                         inlineEditingText = true
@@ -1048,39 +1059,6 @@ fun PdfEditorScreen(
         )
     }
 
-    if (showFlattenedReplaceConfirm) {
-        AlertDialog(
-            onDismissRequest = { showFlattenedReplaceConfirm = false },
-            title = { Text("Replace using permanent redaction?") },
-            text = {
-                Text(
-                    "This alternative permanently removes the selected area, then places the replacement text over it. Every page in the PDF will be rebuilt as a 300-DPI image. Existing searchable/selectable text and vector content throughout the document will be flattened. Bengali replacement text is rendered as an image and will not be searchable. This cannot be undone. Keep a backup of the original PDF."
-                )
-            },
-            confirmButton = {
-                Button(onClick = {
-                    showFlattenedReplaceConfirm = false
-                    inlineEditingText = false
-                    viewModel.replaceSelectedWordsAsFlattenedOverlay(
-                        newText = textInput,
-                        fontSizePt = textSizePt,
-                        textColor = textColor,
-                        backgroundColor = textBgColor,
-                        isBold = textBold,
-                        isItalic = textItalic,
-                        isUnderline = textUnderline,
-                        textAlign = textAlign
-                    )
-                    showTextDialog = false
-                    Toast.makeText(context, "Replacing selected text with permanent redaction…", Toast.LENGTH_LONG).show()
-                }) { Text("Flatten and Replace") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showFlattenedReplaceConfirm = false }) { Text("Cancel") }
-            }
-        )
-    }
-
     // Insert or Edit Text Dialog (With Independent Text & Background Colors)
     if (showTextDialog) {
         AlertDialog(
@@ -1097,17 +1075,11 @@ fun PdfEditorScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     if (selectedWords.isNotEmpty() && !isEditingExistingElement) {
-                        Surface(
-                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.45f),
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Text(
-                                "Latin text is edited directly in a unique Tj string or adjacent strings in one TJ array when the replacement preserves its exact text advance. Bengali is edited in one complete Tj run using a searchable Type 3 glyph with a Unicode map; it requires an embedded Unicode Type 0 font and preserves the original text position and advance. Scanned or outlined text, Bengali split across TJ runs, custom fonts without ToUnicode, Arabic and other complex scripts are not supported. The styling controls below are for the 'Redact and Replace' alternative and new text overlays.",
-                                modifier = Modifier.padding(12.dp),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onErrorContainer
-                            )
-                        }
+                        Text(
+                            "The selected area will be covered with a white editable text overlay. The original PDF page remains intact, and you can edit or move the replacement afterward.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                     OutlinedTextField(
                         value = textInput,
@@ -1117,15 +1089,6 @@ fun PdfEditorScreen(
                         minLines = 2,
                         modifier = Modifier.fillMaxWidth().testTag("editor_text_input")
                     )
-
-                    if (selectedWords.isNotEmpty() && !isEditingExistingElement) {
-                        OutlinedButton(
-                            onClick = { showFlattenedReplaceConfirm = true },
-                            modifier = Modifier.fillMaxWidth().testTag("editor_flattened_replace_button")
-                        ) {
-                            Text("Alternative: Redact and Replace")
-                        }
-                    }
 
                     // Font Size
                     Row(
