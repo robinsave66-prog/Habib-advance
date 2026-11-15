@@ -97,12 +97,12 @@ jobs:
           keytool -genkeypair -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -dname "CN=Android Debug,O=Android,C=US" -keyalg RSA -keysize 2048 -validity 10000
 
       - name: Verify Bengali native PDF text replacement and Unicode extraction
-        if: ${{ github.ref == 'refs/heads/feature/open-source-document-engine' }}
+        if: ${{ github.ref == 'refs/heads/feature/open-source-document-engine' || github.ref == 'refs/heads/feature/wps-style-variable-width-pdf-edit' }}
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 30
           target: aosp_atd
-          arch: x86
+          arch: x86_64
           profile: pixel_2
           cores: 2
           ram-size: 2048M
