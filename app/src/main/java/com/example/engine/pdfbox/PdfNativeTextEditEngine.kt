@@ -84,7 +84,10 @@ class PdfNativeTextEditEngine(private val context: Context) {
                 var wordSpacing = 0f
                 var replacements = 0
 
-                fun replaceOperand(decoded: String): COSArray? {
+                fun replaceOperand(
+                    decoded: String,
+                    internalAdjustments: List<COSNumber> = emptyList()
+                ): COSArray? {
                     val first = decoded.indexOf(oldText)
                     if (first < 0) return null
                     val font = activeFont
@@ -112,6 +115,9 @@ class PdfNativeTextEditEngine(private val context: Context) {
                     val replacement = COSArray()
                     if (prefix.isNotEmpty()) replacement.add(COSString(font.encode(prefix)))
                     replacement.add(COSString(font.encode(newText)))
+                    // Preserve the original TJ kerning adjustments that occurred inside
+                    // the selected phrase, then compensate for the changed glyph advance.
+                    internalAdjustments.forEach { replacement.add(it) }
                     if (kotlin.math.abs(advanceCorrection) > 0.01f) {
                         replacement.add(COSFloat(advanceCorrection))
                     }
@@ -153,36 +159,47 @@ class PdfNativeTextEditEngine(private val context: Context) {
                                     val rewrittenArray = COSArray()
                                     var itemIndex = 0
                                     while (itemIndex < array.size()) {
-                                        val item = array.getObject(itemIndex)
-                                        if (item !is COSString) {
-                                            rewrittenArray.add(item)
+                                        val groupStart = itemIndex
+                                        if (array.getObject(itemIndex) !is COSString) {
+                                            rewrittenArray.add(array.getObject(itemIndex))
                                             itemIndex++
                                             continue
                                         }
 
-                                        val groupParts = ArrayList<COSString>()
                                         val combined = StringBuilder()
+                                        val adjustments = ArrayList<Pair<Int, COSNumber>>()
                                         while (itemIndex < array.size()) {
-                                            val part = array.getObject(itemIndex) as? COSString ?: break
-                                            groupParts.add(part)
-                                            combined.append(
-                                                decodeText(
-                                                    part,
-                                                    activeFont ?: throw IllegalArgumentException(
-                                                        "The selected text has no active PDF font."
+                                            when (val part = array.getObject(itemIndex)) {
+                                                is COSString -> combined.append(
+                                                    decodeText(
+                                                        part,
+                                                        activeFont ?: throw IllegalArgumentException(
+                                                            "The selected text has no active PDF font."
+                                                        )
                                                     )
                                                 )
-                                            )
+                                                is COSNumber -> adjustments += combined.length to part
+                                                else -> break
+                                            }
                                             itemIndex++
                                         }
 
-                                        val updated = replaceOperand(combined.toString())
-                                        if (updated != null) {
-                                            for (replacementIndex in 0 until updated.size()) {
-                                                rewrittenArray.add(updated.getObject(replacementIndex))
+                                        val first = combined.indexOf(oldText)
+                                        if (first >= 0) {
+                                            val end = first + oldText.length
+                                            val internal = adjustments
+                                                .filter { (position, _) -> position > first && position <= end }
+                                                .map { it.second }
+                                            val updated = replaceOperand(combined.toString(), internal)
+                                            if (updated != null) {
+                                                for (replacementIndex in 0 until updated.size()) {
+                                                    rewrittenArray.add(updated.getObject(replacementIndex))
+                                                }
                                             }
                                         } else {
-                                            groupParts.forEach { rewrittenArray.add(it) }
+                                            for (originalIndex in groupStart until itemIndex) {
+                                                rewrittenArray.add(array.getObject(originalIndex))
+                                            }
                                         }
                                     }
                                     tokens[operandIndex] = rewrittenArray
