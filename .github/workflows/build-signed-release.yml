@@ -2,7 +2,7 @@ name: Build Signed Android Release
 
 on:
   push:
-    branches: [main, feature/open-source-document-engine, feature/wps-style-variable-width-pdf-edit, fix/direct-page-inline-pdf-text-edit]
+    branches: [main, feature/open-source-document-engine, feature/wps-style-variable-width-pdf-edit, fix/direct-page-inline-pdf-text-edit, feature/pdfcraft-native-text-engine]
     paths:
       - 'app/**'
       - 'gradle/**'
@@ -37,6 +37,12 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Install PdfCraft Rust toolchain and Android NDK
+        run: |
+          rustup toolchain install 1.99.0 --profile minimal --target aarch64-linux-android --target armv7-linux-androideabi --target x86_64-linux-android
+          cargo install cargo-ndk --version 4.1.2 --locked
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;29.0.14206865" >/dev/null
+
       - name: Set up Gradle 9.3.1
         uses: gradle/actions/setup-gradle@v4
         with:
@@ -70,7 +76,7 @@ jobs:
           test "$(stat -c%s app/src/main/assets/tessdata/eng.traineddata)" -eq 4113088
 
       - name: Run complete unit test suite (final release only)
-        if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/wps-style-variable-width-pdf-edit' || github.ref == 'refs/heads/fix/direct-page-inline-pdf-text-edit' || inputs.publish_apk == true }}
+        if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/wps-style-variable-width-pdf-edit' || github.ref == 'refs/heads/fix/direct-page-inline-pdf-text-edit' || github.ref == 'refs/heads/feature/pdfcraft-native-text-engine' || inputs.publish_apk == true }}
         run: gradle --no-configuration-cache testDebugUnitTest
 
       - name: Build signed release APK for targeted feature validation
@@ -83,7 +89,7 @@ jobs:
           gradle --no-configuration-cache assembleRelease
 
       - name: Verify APK package and signature
-        if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/wps-style-variable-width-pdf-edit' || github.ref == 'refs/heads/fix/direct-page-inline-pdf-text-edit' || inputs.publish_apk == true }}
+        if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/wps-style-variable-width-pdf-edit' || github.ref == 'refs/heads/fix/direct-page-inline-pdf-text-edit' || github.ref == 'refs/heads/feature/pdfcraft-native-text-engine' || inputs.publish_apk == true }}
         run: |
           APK="app/build/outputs/apk/release/app-release.apk"
           test -s "$APK"
@@ -97,12 +103,12 @@ jobs:
           keytool -genkeypair -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -dname "CN=Android Debug,O=Android,C=US" -keyalg RSA -keysize 2048 -validity 10000
 
       - name: Verify Bengali native PDF text replacement and Unicode extraction
-        if: ${{ github.ref == 'refs/heads/feature/open-source-document-engine' || github.ref == 'refs/heads/feature/wps-style-variable-width-pdf-edit' || github.ref == 'refs/heads/fix/direct-page-inline-pdf-text-edit' }}
+        if: ${{ github.ref == 'refs/heads/feature/open-source-document-engine' || github.ref == 'refs/heads/feature/wps-style-variable-width-pdf-edit' || github.ref == 'refs/heads/fix/direct-page-inline-pdf-text-edit' || github.ref == 'refs/heads/feature/pdfcraft-native-text-engine' }}
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 30
           target: aosp_atd
-          arch: x86
+          arch: x86_64
           profile: pixel_2
           cores: 4
           ram-size: 4096M
@@ -114,12 +120,12 @@ jobs:
           script: gradle --no-configuration-cache connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.example.engine.pdfbox.PdfNativeBengaliTextEditInstrumentedTest
 
       - name: Run complete Android instrumentation suite
-        if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/wps-style-variable-width-pdf-edit' || github.ref == 'refs/heads/fix/direct-page-inline-pdf-text-edit' || inputs.publish_apk == true }}
+        if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/wps-style-variable-width-pdf-edit' || github.ref == 'refs/heads/fix/direct-page-inline-pdf-text-edit' || github.ref == 'refs/heads/feature/pdfcraft-native-text-engine' || inputs.publish_apk == true }}
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 30
           target: aosp_atd
-          arch: x86
+          arch: x86_64
           profile: pixel_2
           cores: 4
           ram-size: 4096M
@@ -142,7 +148,7 @@ jobs:
           git push
 
       - name: Upload APK artifact
-        if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/wps-style-variable-width-pdf-edit' || github.ref == 'refs/heads/fix/direct-page-inline-pdf-text-edit' || inputs.publish_apk == true }}
+        if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/wps-style-variable-width-pdf-edit' || github.ref == 'refs/heads/fix/direct-page-inline-pdf-text-edit' || github.ref == 'refs/heads/feature/pdfcraft-native-text-engine' || inputs.publish_apk == true }}
         uses: actions/upload-artifact@v4
         with:
           name: Habib_Advance_Editor_Complete
