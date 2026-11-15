@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.cos.COSArray
+import com.tom_roush.pdfbox.cos.COSFloat
 import com.tom_roush.pdfbox.cos.COSName
 import com.tom_roush.pdfbox.cos.COSNumber
 import com.tom_roush.pdfbox.cos.COSString
@@ -83,7 +84,7 @@ class PdfNativeTextEditEngine(private val context: Context) {
                 var wordSpacing = 0f
                 var replacements = 0
 
-                fun replaceOperand(decoded: String): COSString? {
+                fun replaceOperand(decoded: String): COSArray? {
                     val first = decoded.indexOf(oldText)
                     if (first < 0) return null
                     val font = activeFont
@@ -92,7 +93,10 @@ class PdfNativeTextEditEngine(private val context: Context) {
                     require(decoded.indexOf(oldText, first + oldText.length) < 0) {
                         "The selected text occurs more than once in one PDF text object. Select a more specific phrase."
                     }
-                    // Include Tc and Tw in the horizontal text advance.
+
+                    // PDF TJ numbers compensate for changed glyph advances. This lets us
+                    // replace a phrase with a different width while keeping the following
+                    // glyphs at their original page coordinates.
                     fun textAdvance(value: String): Float {
                         val glyphAdvance = font.getStringWidth(value) * activeFontSize / 1000f
                         val characterAdvance = characterSpacing * value.codePointCount(0, value.length)
@@ -100,13 +104,20 @@ class PdfNativeTextEditEngine(private val context: Context) {
                             else wordSpacing * value.count { it == ' ' }
                         return glyphAdvance + characterAdvance + wordAdvance
                     }
-                    require(kotlin.math.abs(textAdvance(oldText) - textAdvance(newText)) <= 0.01f) {
-                        "The replacement has a different rendered advance in the original PDF text state. Layout-preserving edit was cancelled."
+
+                    val prefix = decoded.substring(0, first)
+                    val suffix = decoded.substring(first + oldText.length)
+                    val advanceCorrection = (textAdvance(newText) - textAdvance(oldText)) *
+                        1000f / activeFontSize
+                    val replacement = COSArray()
+                    if (prefix.isNotEmpty()) replacement.add(COSString(font.encode(prefix)))
+                    replacement.add(COSString(font.encode(newText)))
+                    if (kotlin.math.abs(advanceCorrection) > 0.01f) {
+                        replacement.add(COSFloat(advanceCorrection))
                     }
-                    val updated = decoded.replaceRange(first, first + oldText.length, newText)
-                    val encoded = font.encode(updated)
+                    if (suffix.isNotEmpty()) replacement.add(COSString(font.encode(suffix)))
                     replacements += 1
-                    return COSString(encoded)
+                    return replacement
                 }
 
                 for (index in tokens.indices) {
@@ -129,38 +140,52 @@ class PdfNativeTextEditEngine(private val context: Context) {
                                 val operandIndex = index - 1
                                 val string = tokens.getOrNull(operandIndex) as? COSString
                                 if (string != null) {
-                                    replaceOperand(decodeText(string, activeFont ?: throw IllegalArgumentException("The selected text has no active PDF font.")))?.let { tokens[operandIndex] = it }
+                                    replaceOperand(decodeText(string, activeFont ?: throw IllegalArgumentException("The selected text has no active PDF font.")))?.let {
+                                        tokens[operandIndex] = it
+                                        tokens[index] = Operator.getOperator("TJ")
+                                    }
                                 }
                             }
                             "TJ" -> {
                                 val operandIndex = index - 1
                                 val array = tokens.getOrNull(operandIndex) as? COSArray
                                 if (array != null) {
+                                    val rewrittenArray = COSArray()
                                     var itemIndex = 0
                                     while (itemIndex < array.size()) {
-                                        if (array.getObject(itemIndex) !is COSString) {
+                                        val item = array.getObject(itemIndex)
+                                        if (item !is COSString) {
+                                            rewrittenArray.add(item)
                                             itemIndex++
                                             continue
                                         }
-                                        val groupStart = itemIndex
+
+                                        val groupParts = ArrayList<COSString>()
                                         val combined = StringBuilder()
                                         while (itemIndex < array.size()) {
                                             val part = array.getObject(itemIndex) as? COSString ?: break
-                                            combined.append(decodeText(part, activeFont ?: throw IllegalArgumentException("The selected text has no active PDF font.")))
+                                            groupParts.add(part)
+                                            combined.append(
+                                                decodeText(
+                                                    part,
+                                                    activeFont ?: throw IllegalArgumentException(
+                                                        "The selected text has no active PDF font."
+                                                    )
+                                                )
+                                            )
                                             itemIndex++
                                         }
+
                                         val updated = replaceOperand(combined.toString())
                                         if (updated != null) {
-                                            // Adjacent strings have no TJ numeric kerning between them.
-                                            // Store the replacement in the first slot and leave empty
-                                            // strings in the remaining slots to preserve array indexing.
-                                            array.set(groupStart, updated)
-                                            for (emptyIndex in groupStart + 1 until itemIndex) {
-                                                array.set(emptyIndex, COSString(ByteArray(0)))
+                                            for (replacementIndex in 0 until updated.size()) {
+                                                rewrittenArray.add(updated.getObject(replacementIndex))
                                             }
+                                        } else {
+                                            groupParts.forEach { rewrittenArray.add(it) }
                                         }
                                     }
-                                }
+                                    tokens[operandIndex] = rewrittenArray                                }
                             }
                         }
                     }
