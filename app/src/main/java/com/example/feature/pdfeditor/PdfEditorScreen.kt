@@ -152,6 +152,7 @@ fun PdfEditorScreen(
     var showPageOperationsDialog by remember { mutableStateOf(false) }
     var showRedactionConfirm by remember { mutableStateOf(false) }
     var inlineEditingText by remember { mutableStateOf(false) }
+    var inlineEditError by remember { mutableStateOf<String?>(null) }
     var pageSelectionInput by remember { mutableStateOf("1") }
     var saveFileNameInput by remember { mutableStateOf("Edited_${documentName ?: "Document.pdf"}") }
 
@@ -849,9 +850,21 @@ fun PdfEditorScreen(
                                                 horizontalArrangement = Arrangement.End,
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
-                                                TextButton(onClick = { inlineEditingText = false; editingElementId = null }) { Text("Cancel") }
+                                                inlineEditError?.let { message ->
+                                                    Text(
+                                                        message,
+                                                        color = MaterialTheme.colorScheme.error,
+                                                        style = MaterialTheme.typography.bodySmall
+                                                    )
+                                                }
+                                                TextButton(onClick = {
+                                                    inlineEditingText = false
+                                                    editingElementId = null
+                                                    inlineEditError = null
+                                                }) { Text("Cancel") }
                                                 Button(
                                                     onClick = {
+                                                        inlineEditError = null
                                                         if (inlineEditingElement != null && editingElementId != null) {
                                                             viewModel.updateTextElement(
                                                                 elementId = editingElementId!!,
@@ -864,18 +877,27 @@ fun PdfEditorScreen(
                                                                 backgroundColor = textBgColor,
                                                                 textAlign = textAlign
                                                             )
+                                                            inlineEditingText = false
                                                         } else {
                                                             viewModel.replaceSelectedWords(
                                                                 newText = textInput,
                                                                 fontSizePt = textSizePt,
-                                                                textColor = textColor
+                                                                textColor = textColor,
+                                                                onComplete = { success, message ->
+                                                                    if (success) {
+                                                                        inlineEditingText = false
+                                                                        editingElementId = null
+                                                                        inlineEditError = null
+                                                                    } else {
+                                                                        inlineEditError = message
+                                                                    }
+                                                                }
                                                             )
                                                         }
-                                                        inlineEditingText = false
                                                     },
-                                                    enabled = textInput.isNotBlank(),
+                                                    enabled = textInput.isNotBlank() && status !is EditorUiStatus.Exporting,
                                                     modifier = Modifier.testTag("pdf_inline_text_save")
-                                                ) { Text("Save") }
+                                                ) { Text(if (status is EditorUiStatus.Exporting) "Saving…" else "Save") }
                                             }
                                         }
                                     }
