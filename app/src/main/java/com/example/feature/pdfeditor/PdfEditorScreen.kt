@@ -152,6 +152,7 @@ fun PdfEditorScreen(
     var showPageOperationsDialog by remember { mutableStateOf(false) }
     var showRedactionConfirm by remember { mutableStateOf(false) }
     var showFlattenedReplaceConfirm by remember { mutableStateOf(false) }
+    var inlineEditingText by remember { mutableStateOf(false) }
     var pageSelectionInput by remember { mutableStateOf("1") }
     var saveFileNameInput by remember { mutableStateOf("Edited_${documentName ?: "Document.pdf"}") }
 
@@ -167,6 +168,17 @@ fun PdfEditorScreen(
     var textItalic by remember { mutableStateOf(false) }
     var textUnderline by remember { mutableStateOf(false) }
     var textAlign by remember { mutableStateOf("LEFT") }
+
+    // Keep source-PDF text editing anchored to the selected words on the current page.
+    LaunchedEffect(status, inlineEditingText) {
+        if (inlineEditingText) {
+            when (status) {
+                is EditorUiStatus.Error -> showFlattenedReplaceConfirm = true
+                is EditorUiStatus.Loaded -> if (selectedWords.isEmpty()) inlineEditingText = false
+                else -> Unit
+            }
+        }
+    }
 
     // Shape Dialog State
     var showShapeDialog by remember { mutableStateOf(false) }
@@ -802,7 +814,62 @@ fun PdfEditorScreen(
                                         }
                                     }
 
-                                    // 3. Vector Object Elements Layer (Movable, Resizable, Editable)
+                                    // 3. Inline PDF text editor: edit directly over the selected page text.
+                                    if (inlineEditingText && selectedWords.isNotEmpty()) {
+                                        val editBounds = android.graphics.RectF(
+                                            selectedWords.minOf { it.bounds.left },
+                                            selectedWords.minOf { it.bounds.top },
+                                            selectedWords.maxOf { it.bounds.right },
+                                            selectedWords.maxOf { it.bounds.bottom }
+                                        )
+                                        val editorX = with(density) { (editBounds.left * pxPerPt).toDp() }
+                                            .coerceIn(0.dp, (fittedWidthDp - 260.dp).coerceAtLeast(0.dp))
+                                        val editorY = with(density) { ((editBounds.bottom + 4f) * pxPerPt).toDp() }
+                                            .coerceAtMost((fittedHeightDp - 116.dp).coerceAtLeast(0.dp))
+                                        Column(
+                                            modifier = Modifier
+                                                .offset(x = editorX, y = editorY)
+                                                .width(260.dp)
+                                                .background(Color.White, RoundedCornerShape(10.dp))
+                                                .border(1.dp, Color(0xFF2196F3), RoundedCornerShape(10.dp))
+                                                .padding(8.dp),
+                                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Text("Edit selected text", color = Color(0xFF0F3B66), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
+                                            OutlinedTextField(
+                                                value = textInput,
+                                                onValueChange = { textInput = it },
+                                                singleLine = true,
+                                                modifier = Modifier.fillMaxWidth().testTag("pdf_inline_text_input"),
+                                                label = { Text("Text") }
+                                            )
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.End,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                TextButton(onClick = { inlineEditingText = false }) { Text("Cancel") }
+                                                Button(
+                                                    onClick = {
+                                                        viewModel.replaceSelectedWords(
+                                                            newText = textInput,
+                                                            fontSizePt = textSizePt,
+                                                            textColor = textColor,
+                                                            backgroundColor = textBgColor,
+                                                            isBold = textBold,
+                                                            isItalic = textItalic,
+                                                            isUnderline = textUnderline,
+                                                            textAlign = textAlign
+                                                        )
+                                                    },
+                                                    enabled = textInput.isNotBlank(),
+                                                    modifier = Modifier.testTag("pdf_inline_text_save")
+                                                ) { Text("Save") }
+                                            }
+                                        }
+                                    }
+
+                                    // 4. Vector Object Elements Layer (Movable, Resizable, Editable)
                                     val currentElements = elementsMap[currentPage].orEmpty()
                                     for (elem in currentElements) {
                                         EditorElementView(
@@ -923,7 +990,8 @@ fun PdfEditorScreen(
                                         textBgColor = null // Respects transparent background by default
                                         textBold = first.isBold
                                         textItalic = first.isItalic
-                                        showTextDialog = true
+                                        inlineEditingText = true
+                                        showTextDialog = false
                                     },
                                     onDelete = {
                                         showRedactionConfirm = true
@@ -992,6 +1060,7 @@ fun PdfEditorScreen(
             confirmButton = {
                 Button(onClick = {
                     showFlattenedReplaceConfirm = false
+                    inlineEditingText = false
                     viewModel.replaceSelectedWordsAsFlattenedOverlay(
                         newText = textInput,
                         fontSizePt = textSizePt,
