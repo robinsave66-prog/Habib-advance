@@ -16,6 +16,7 @@ import com.tom_roush.pdfbox.pdmodel.font.PDFont
 import com.tom_roush.pdfbox.pdmodel.font.PDType0Font
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.FileOutputStream
 
@@ -128,7 +129,7 @@ class PdfNativeTextEditEngine(private val context: Context) {
                                 val operandIndex = index - 1
                                 val string = tokens.getOrNull(operandIndex) as? COSString
                                 if (string != null) {
-                                    replaceOperand(string.string)?.let { tokens[operandIndex] = it }
+                                    replaceOperand(decodeText(string, activeFont ?: throw IllegalArgumentException("The selected text has no active PDF font.")))?.let { tokens[operandIndex] = it }
                                 }
                             }
                             "TJ" -> {
@@ -145,7 +146,7 @@ class PdfNativeTextEditEngine(private val context: Context) {
                                         val combined = StringBuilder()
                                         while (itemIndex < array.size()) {
                                             val part = array.getObject(itemIndex) as? COSString ?: break
-                                            combined.append(part.string)
+                                            combined.append(decodeText(part, activeFont ?: throw IllegalArgumentException("The selected text has no active PDF font.")))
                                             itemIndex++
                                         }
                                         val updated = replaceOperand(combined.toString())
@@ -186,6 +187,25 @@ class PdfNativeTextEditEngine(private val context: Context) {
             throw error
         } finally {
             source.delete()
+        }
+    }
+
+    /** Decode each PDF character code through the active font's encoding/ToUnicode map.
+     * COSString.string is not font-aware and can return different characters for Type 0,
+     * custom-encoded and embedded subset fonts; using it caused hit-tested words to fail
+     * matching the original content-stream operand.
+     */
+    private fun decodeText(value: COSString, font: PDFont): String {
+        val input = ByteArrayInputStream(value.bytes)
+        return buildString {
+            while (input.available() > 0) {
+                val code = font.readCode(input)
+                val unicode = font.toUnicode(code)
+                    ?: throw IllegalArgumentException(
+                        "The active PDF font has no Unicode mapping for one or more selected characters."
+                    )
+                append(unicode)
+            }
         }
     }
 
