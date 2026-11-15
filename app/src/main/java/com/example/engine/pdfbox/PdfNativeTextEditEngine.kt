@@ -25,9 +25,9 @@ import java.io.FileOutputStream
  * Conservative native PDF text replacement.
  *
  * This edits the original Tj/TJ string operand in the page content stream. It supports a
- * unique simple-Latin match in a Tj string or across adjacent strings within one TJ array,
- * encoded by the active page font, with exactly the same glyph advance width. Replacement
- * character count may differ when the rendered advance remains identical.
+ * unique simple-Latin match in a Tj string or across adjacent strings within one TJ array.
+ * The replacement is encoded by the active page font and a TJ positioning adjustment
+ * preserves the following glyph positions even when the replacement has a different width.
  * Unsupported layouts are rejected instead of being covered with a white rectangle or
  * silently shifting the rest of the page.
  *
@@ -185,7 +185,8 @@ class PdfNativeTextEditEngine(private val context: Context) {
                                             groupParts.forEach { rewrittenArray.add(it) }
                                         }
                                     }
-                                    tokens[operandIndex] = rewrittenArray                                }
+                                    tokens[operandIndex] = rewrittenArray
+                                }
                             }
                         }
                     }
