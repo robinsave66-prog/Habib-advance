@@ -832,6 +832,11 @@ fun PdfEditorScreen(
                                             verticalArrangement = Arrangement.spacedBy(6.dp)
                                         ) {
                                             Text("Edit selected text", color = Color(0xFF0F3B66), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
+                                            Text(
+                                                "The original PDF text is being edited directly. Its embedded font, size, color and page position are retained. Scanned text or unsupported font/content layouts must be processed with OCR or another supported workflow first.",
+                                                color = Color(0xFF526477),
+                                                style = MaterialTheme.typography.bodySmall
+                                            )
                                             OutlinedTextField(
                                                 value = textInput,
                                                 onValueChange = { textInput = it },
@@ -863,12 +868,7 @@ fun PdfEditorScreen(
                                                             viewModel.replaceSelectedWords(
                                                                 newText = textInput,
                                                                 fontSizePt = textSizePt,
-                                                                textColor = textColor,
-                                                                backgroundColor = textBgColor ?: 0xFFFFFFFF,
-                                                                isBold = textBold,
-                                                                isItalic = textItalic,
-                                                                isUnderline = textUnderline,
-                                                                textAlign = textAlign
+                                                                textColor = textColor
                                                             )
                                                         }
                                                         inlineEditingText = false
@@ -998,7 +998,6 @@ fun PdfEditorScreen(
                                         textInput = selectedWords.joinToString(" ") { it.text }
                                         textSizePt = first.fontSizePt
                                         textColor = first.textColor
-                                        textBgColor = 0xFFFFFFFF // White page patch; never use black redaction for text replacement
                                         textBold = first.isBold
                                         textItalic = first.isItalic
                                         inlineEditingText = true
