@@ -8,6 +8,9 @@ import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.pdmodel.PDPage
 import com.tom_roush.pdfbox.pdmodel.PDPageContentStream
+import com.tom_roush.pdfbox.pdmodel.PDFormContentStream
+import com.tom_roush.pdfbox.pdmodel.PDResources
+import com.tom_roush.pdfbox.pdmodel.graphics.form.PDFormXObject
 import com.tom_roush.pdfbox.pdmodel.common.PDRectangle
 import com.tom_roush.pdfbox.pdmodel.font.PDType1Font
 import com.tom_roush.pdfbox.text.PDFTextStripper
@@ -47,6 +50,40 @@ class PdfCraftNativeTextEditEngineInstrumentedTest {
         }
         PDDocument.load(source).use { original ->
             assertTrue(PDFTextStripper().getText(original).contains("Start original phrase End"))
+        }
+    }
+
+    @Test
+    fun editsTextInsideAFormXObject() = runBlocking {
+        val source = File(context.cacheDir, "pdfcraft-form-source-${System.nanoTime()}.pdf")
+        PDDocument().use { document ->
+            val page = PDPage(PDRectangle(420f, 600f))
+            document.addPage(page)
+            val form = PDFormXObject(document)
+            form.bBox = PDRectangle(260f, 90f)
+            form.resources = PDResources()
+            PDFormContentStream(form).use { stream ->
+                stream.beginText()
+                stream.setFont(PDType1Font.HELVETICA, 12f)
+                stream.newLineAtOffset(8f, 45f)
+                stream.showText("Form paragraph original")
+                stream.endText()
+            }
+            PDPageContentStream(document, page).use { it.drawForm(form) }
+            document.save(source)
+        }
+
+        val output = engine.replaceText(
+            sourceUri = Uri.fromFile(source),
+            pageIndex = 0,
+            oldText = "paragraph original",
+            newText = "paragraph updated",
+            outputFileName = "pdfcraft-form-text-test.pdf"
+        )
+        PDDocument.load(output).use { edited ->
+            val extracted = PDFTextStripper().getText(edited)
+            assertTrue(extracted.contains("Form paragraph updated"))
+            assertFalse(extracted.contains("Form paragraph original"))
         }
     }
 
