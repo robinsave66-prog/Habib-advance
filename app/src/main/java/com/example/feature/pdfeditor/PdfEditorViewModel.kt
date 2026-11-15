@@ -13,7 +13,6 @@ import androidx.core.content.FileProvider
 import com.example.engine.pdfbox.PdfBoxDocumentEngine
 import com.example.engine.pdfbox.PdfBoxOverlayExportEngine
 import com.example.engine.pdfbox.PdfSecureRedactionEngine
-import com.example.engine.pdfbox.PdfNativeTextEditEngine
 import com.example.engine.core.IPdfRenderer
 import com.example.engine.core.PdfDocumentInfo
 import com.example.engine.core.PdfLoadResult
@@ -70,7 +69,6 @@ class PdfEditorViewModel(
     private val pageEngine = PdfBoxDocumentEngine(context)
     private val overlayExportEngine = PdfBoxOverlayExportEngine(context)
     private val secureRedactionEngine = PdfSecureRedactionEngine(context)
-    private val nativeTextEditEngine = PdfNativeTextEditEngine(context)
 
     private val _status = MutableStateFlow<EditorUiStatus>(EditorUiStatus.Idle)
     val status: StateFlow<EditorUiStatus> = _status.asStateFlow()
@@ -432,135 +430,6 @@ class PdfEditorViewModel(
         )
         addElement(replacementOverlay)
         clearWordSelection()
-    }
-
-    /**
-     * Explicit destructive fallback for source text that cannot be safely replaced natively.
-     * All pages are rasterized by the secure redaction engine before the replacement overlay
-     * is added. The original source PDF is never modified.
-     */
-    fun replaceSelectedWordsAsFlattenedOverlay(
-        newText: String,
-        fontSizePt: Float,
-        textColor: Long,
-        backgroundColor: Long? = null,
-        isBold: Boolean = false,
-        isItalic: Boolean = false,
-        isUnderline: Boolean = false,
-        textAlign: String = "LEFT"
-    ) {
-        val words = _selectedWords.value
-        if (words.isEmpty()) {
-            _status.value = EditorUiStatus.Error("Select PDF text before using flattened replacement.")
-            return
-        }
-        if (newText.isBlank()) {
-            _status.value = EditorUiStatus.Error("Enter replacement text.")
-            return
-        }
-        val source = sourceDocUri ?: run {
-            _status.value = EditorUiStatus.Error("The source PDF is not available.")
-            return
-        }
-        val page = _currentPage.value
-        val bounds = RectF(
-            words.minOf { it.bounds.left },
-            words.minOf { it.bounds.top },
-            words.maxOf { it.bounds.right },
-            words.maxOf { it.bounds.bottom }
-        )
-        val (pageWidth, pageHeight) = _pageDimensions.value
-        val x = bounds.left.coerceIn(0f, (pageWidth - 1f).coerceAtLeast(0f))
-        val y = bounds.top.coerceIn(0f, (pageHeight - 1f).coerceAtLeast(0f))
-        val availableWidth = (pageWidth - x).coerceAtLeast(1f)
-        val availableHeight = (pageHeight - y).coerceAtLeast(1f)
-        val replacementWidth = maxOf(
-            bounds.width().coerceAtLeast(1f),
-            newText.length * fontSizePt.coerceAtLeast(1f) * 0.65f + 8f
-        ).coerceAtMost(availableWidth)
-        val replacementHeight = maxOf(
-            bounds.height().coerceAtLeast(1f),
-            fontSizePt.coerceAtLeast(1f) + 8f
-        ).coerceAtMost(availableHeight)
-        if (replacementWidth <= 0f || replacementHeight <= 0f) {
-            _status.value = EditorUiStatus.Error("The selected area is outside the PDF page.")
-            return
-        }
-
-        val replacement = TextElement(
-            pageIndex = page,
-            x = x,
-            y = y,
-            width = replacementWidth,
-            height = replacementHeight,
-            text = newText,
-            fontSizePt = fontSizePt.coerceAtLeast(1f),
-            textColor = textColor,
-            backgroundColor = backgroundColor,
-            isBold = isBold,
-            isItalic = isItalic,
-            isUnderline = isUnderline,
-            textAlign = textAlign
-        )
-        _status.value = EditorUiStatus.Exporting("Redacting selected text and placing replacement…")
-        viewModelScope.launch {
-            var stagedOverlayPdf: File? = null
-            var redactedFile: File? = null
-            try {
-                val redactionSource = if (_elements.value.isNotEmpty()) {
-                    stagedOverlayPdf = overlayExportEngine.export(
-                        sourceUri = source,
-                        elementsByPage = _elements.value,
-                        outputFileName = "Pre_Replace_Redaction_${System.currentTimeMillis()}.pdf"
-                    )
-                    Uri.fromFile(stagedOverlayPdf)
-                } else source
-
-                redactedFile = secureRedactionEngine.redact(
-                    sourceUri = redactionSource,
-                    redactionsByPage = mapOf(page to listOf(bounds)),
-                    outputFileName = "Replace_Redacted_${System.currentTimeMillis()}.pdf"
-                )
-                val finalFile = overlayExportEngine.export(
-                    sourceUri = Uri.fromFile(redactedFile),
-                    elementsByPage = mapOf(page to listOf(replacement)),
-                    outputFileName = "Text_Replaced_${System.currentTimeMillis()}.pdf"
-                )
-                val finalUri = FileProvider.getUriForFile(
-                    context,
-                    "${context.packageName}.fileprovider",
-                    finalFile
-                )
-                when (val loaded = renderer.openDocument(finalUri)) {
-                    is PdfLoadResult.Success -> {
-                        sourceDocUri = finalUri
-                        _elements.value = emptyMap()
-                        _detectedWords.value = emptyMap()
-                        _selectedWords.value = emptyList()
-                        _selectedElementId.value = null
-                        undoStack.clear()
-                        redoStack.clear()
-                        _currentPage.value = page.coerceIn(0, loaded.documentInfo.pageCount - 1)
-                        _pageDimensions.value = renderer.getPageDimensions(_currentPage.value) ?: Pair(595, 842)
-                        _status.value = EditorUiStatus.Loaded(loaded.documentInfo)
-                        redactedFile.delete()
-                        redactedFile = null
-                    }
-                    is PdfLoadResult.PasswordRequired -> _status.value = EditorUiStatus.Error(loaded.message)
-                    is PdfLoadResult.Corrupted -> _status.value = EditorUiStatus.Error(loaded.message)
-                    is PdfLoadResult.Error -> _status.value = EditorUiStatus.Error(
-                        loaded.throwable.localizedMessage ?: "Could not reopen the replaced PDF."
-                    )
-                }
-            } catch (error: Exception) {
-                _status.value = EditorUiStatus.Error(
-                    error.localizedMessage ?: "Flattened text replacement failed."
-                )
-            } finally {
-                stagedOverlayPdf?.delete()
-                redactedFile?.delete()
-            }
-        }
     }
 
     fun pasteTextAtPosition(
