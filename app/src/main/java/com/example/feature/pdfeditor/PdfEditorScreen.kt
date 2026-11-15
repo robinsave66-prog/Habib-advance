@@ -149,6 +149,10 @@ fun PdfEditorScreen(
     val selectedWords by viewModel.selectedWords.collectAsStateWithLifecycle()
 
     var showSaveDialog by remember { mutableStateOf(false) }
+    var showPageOperationsDialog by remember { mutableStateOf(false) }
+    var showRedactionConfirm by remember { mutableStateOf(false) }
+    var showFlattenedReplaceConfirm by remember { mutableStateOf(false) }
+    var pageSelectionInput by remember { mutableStateOf("1") }
     var saveFileNameInput by remember { mutableStateOf("Edited_${documentName ?: "Document.pdf"}") }
 
     // Text Insertion / Edit Dialog State
@@ -200,6 +204,16 @@ fun PdfEditorScreen(
                 imageUri = uri.toString()
             )
             viewModel.addElement(imgElem)
+        }
+    }
+
+    val mergePdfLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenMultipleDocuments()
+    ) { selectedUris ->
+        if (selectedUris.size >= 2) {
+            viewModel.mergePdfDocuments(selectedUris)
+        } else if (selectedUris.isNotEmpty()) {
+            Toast.makeText(context, "Select at least two PDF files.", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -270,6 +284,13 @@ fun PdfEditorScreen(
                         modifier = Modifier.testTag("editor_paste_button")
                     ) {
                         Icon(Icons.Default.ContentPaste, contentDescription = "Paste")
+                    }
+
+                    TextButton(
+                        onClick = { showPageOperationsDialog = true },
+                        modifier = Modifier.testTag("editor_page_operations_button")
+                    ) {
+                        Text("Pages")
                     }
 
                     // Save / Export
@@ -510,6 +531,17 @@ fun PdfEditorScreen(
                 .background(Color(0xFFE2E8F0))
         ) {
             when (val s = status) {
+                is EditorUiStatus.Exporting -> {
+                    Column(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.Center,
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(s.progress, style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
                 is EditorUiStatus.Loading -> {
                     Column(
                         modifier = Modifier.fillMaxSize(),
@@ -870,8 +902,10 @@ fun PdfEditorScreen(
                                         Toast.makeText(context, "Copied: \"$text\"", Toast.LENGTH_SHORT).show()
                                     },
                                     onCut = {
-                                        val text = viewModel.cutSelectedWords(context)
-                                        Toast.makeText(context, "Cut: \"$text\"", Toast.LENGTH_SHORT).show()
+                                        val text = viewModel.copySelectedWords(context)
+                                        if (text.isNotBlank()) {
+                                            showRedactionConfirm = true
+                                        }
                                     },
                                     onPaste = {
                                         val first = selectedWords.first()
@@ -891,17 +925,15 @@ fun PdfEditorScreen(
                                         showTextDialog = true
                                     },
                                     onDelete = {
-                                        viewModel.deleteSelectedWords()
-                                        Toast.makeText(context, "Text deleted & redacted", Toast.LENGTH_SHORT).show()
+                                        showRedactionConfirm = true
                                     },
                                     onSelectAll = { viewModel.selectAllWordsOnCurrentPage() },
                                     onChangeColor = {
-                                        textColor = 0xFFDC2626 // Quick Red toggle
-                                        viewModel.replaceSelectedWords(
-                                            newText = selectedWords.joinToString(" ") { it.text },
-                                            fontSizePt = selectedWords.first().fontSizePt,
-                                            textColor = textColor
-                                        )
+                                        Toast.makeText(
+                                            context,
+                                            "Original PDF text color cannot be changed by native text replacement. Add a text overlay to use custom colors.",
+                                            Toast.LENGTH_LONG
+                                        ).show()
                                     },
                                     modifier = Modifier
                                         .align(Alignment.TopCenter)
@@ -915,6 +947,68 @@ fun PdfEditorScreen(
                 else -> {}
             }
         }
+    }
+
+    if (showRedactionConfirm) {
+        AlertDialog(
+            onDismissRequest = {
+                showRedactionConfirm = false
+            },
+            title = { Text("Permanently redact selected text?") },
+            text = {
+                Text(
+                    "This rebuilds every page as a 300-DPI image and applies an opaque black redaction. The entire document will lose searchable/selectable text and vector content will be flattened. This cannot be undone. Keep a backup of the original PDF."
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showRedactionConfirm = false
+                        viewModel.deleteSelectedWords()
+                        Toast.makeText(context, "Applying permanent redaction. Please wait…", Toast.LENGTH_LONG).show()
+                    }
+                ) { Text("Redact Permanently") }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showRedactionConfirm = false
+                    }
+                ) { Text("Cancel") }
+            }
+        )
+    }
+
+    if (showFlattenedReplaceConfirm) {
+        AlertDialog(
+            onDismissRequest = { showFlattenedReplaceConfirm = false },
+            title = { Text("Replace using permanent redaction?") },
+            text = {
+                Text(
+                    "This alternative permanently removes the selected area, then places the replacement text over it. Every page in the PDF will be rebuilt as a 300-DPI image. Existing searchable/selectable text and vector content throughout the document will be flattened. Bengali replacement text is rendered as an image and will not be searchable. This cannot be undone. Keep a backup of the original PDF."
+                )
+            },
+            confirmButton = {
+                Button(onClick = {
+                    showFlattenedReplaceConfirm = false
+                    viewModel.replaceSelectedWordsAsFlattenedOverlay(
+                        newText = textInput,
+                        fontSizePt = textSizePt,
+                        textColor = textColor,
+                        backgroundColor = textBgColor,
+                        isBold = textBold,
+                        isItalic = textItalic,
+                        isUnderline = textUnderline,
+                        textAlign = textAlign
+                    )
+                    showTextDialog = false
+                    Toast.makeText(context, "Replacing selected text with permanent redaction…", Toast.LENGTH_LONG).show()
+                }) { Text("Flatten and Replace") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showFlattenedReplaceConfirm = false }) { Text("Cancel") }
+            }
+        )
     }
 
     // Insert or Edit Text Dialog (With Independent Text & Background Colors)
@@ -932,6 +1026,19 @@ fun PdfEditorScreen(
                     modifier = Modifier.verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
+                    if (selectedWords.isNotEmpty() && !isEditingExistingElement) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.45f),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text(
+                                "Latin text is edited directly in a unique Tj string or adjacent strings in one TJ array when the replacement preserves its exact text advance. Bengali is edited in one complete Tj run using a searchable Type 3 glyph with a Unicode map; it requires an embedded Unicode Type 0 font and preserves the original text position and advance. Scanned or outlined text, Bengali split across TJ runs, custom fonts without ToUnicode, Arabic and other complex scripts are not supported. The styling controls below are for the 'Redact and Replace' alternative and new text overlays.",
+                                modifier = Modifier.padding(12.dp),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                        }
+                    }
                     OutlinedTextField(
                         value = textInput,
                         onValueChange = { textInput = it },
@@ -940,6 +1047,15 @@ fun PdfEditorScreen(
                         minLines = 2,
                         modifier = Modifier.fillMaxWidth().testTag("editor_text_input")
                     )
+
+                    if (selectedWords.isNotEmpty() && !isEditingExistingElement) {
+                        OutlinedButton(
+                            onClick = { showFlattenedReplaceConfirm = true },
+                            modifier = Modifier.fillMaxWidth().testTag("editor_flattened_replace_button")
+                        ) {
+                            Text("Alternative: Redact and Replace")
+                        }
+                    }
 
                     // Font Size
                     Row(
@@ -1262,6 +1378,101 @@ fun PdfEditorScreen(
         )
     }
 
+    // PDFBox-backed page operations. Each action creates a new PDF copy.
+    if (showPageOperationsDialog) {
+        AlertDialog(
+            onDismissRequest = { showPageOperationsDialog = false },
+            title = { Text("PDF Page Operations", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "Page changes create a new PDF copy. Existing text, image and signature overlays are kept and remapped when pages are inserted, deleted, duplicated or reordered.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    OutlinedTextField(
+                        value = pageSelectionInput,
+                        onValueChange = { pageSelectionInput = it },
+                        label = { Text("Select pages") },
+                        placeholder = { Text("Example: 1, 3-5") },
+                        supportingText = { Text("Enter page numbers separated by commas; ranges are supported.") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().testTag("pdf_page_selection_input")
+                    )
+                    val selectedPages = parsePdfPageSelection(
+                        pageSelectionInput,
+                        (status as? EditorUiStatus.Loaded)?.documentInfo?.pageCount ?: 0
+                    )
+                    Text(
+                        selectedPages?.let { it.size.toString() + " page(s) selected" }
+                            ?: "Enter valid page numbers within the document.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    OutlinedButton(
+                        onClick = {
+                            showPageOperationsDialog = false
+                            selectedPages?.let(viewModel::deleteSelectedPages)
+                        },
+                        enabled = !selectedPages.isNullOrEmpty() &&
+                            selectedPages.size < ((status as? EditorUiStatus.Loaded)?.documentInfo?.pageCount ?: 0),
+                        modifier = Modifier.fillMaxWidth().testTag("pdf_delete_selected_pages")
+                    ) { Text("Delete Selected Pages") }
+                    OutlinedButton(
+                        onClick = {
+                            showPageOperationsDialog = false
+                            selectedPages?.let(viewModel::extractSelectedPages)
+                        },
+                        enabled = !selectedPages.isNullOrEmpty(),
+                        modifier = Modifier.fillMaxWidth().testTag("pdf_extract_selected_pages")
+                    ) { Text("Extract Selected Pages") }
+                    OutlinedButton(
+                        onClick = { showPageOperationsDialog = false; viewModel.duplicateCurrentPage() },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("Duplicate Current Page") }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            onClick = { showPageOperationsDialog = false; viewModel.moveCurrentPageBy(-1) },
+                            enabled = currentPage > 0,
+                            modifier = Modifier.weight(1f)
+                        ) { Text("Move Earlier") }
+                        OutlinedButton(
+                            onClick = { showPageOperationsDialog = false; viewModel.moveCurrentPageBy(1) },
+                            enabled = currentPage < ((status as? EditorUiStatus.Loaded)?.documentInfo?.pageCount ?: 1) - 1,
+                            modifier = Modifier.weight(1f)
+                        ) { Text("Move Later") }
+                    }
+                    OutlinedButton(
+                        onClick = { showPageOperationsDialog = false; viewModel.rotateCurrentPage() },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("Rotate Current Page 90°") }
+                    OutlinedButton(
+                        onClick = { showPageOperationsDialog = false; viewModel.insertBlankPageAfterCurrent() },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("Insert Blank Page After Current") }
+                    OutlinedButton(
+                        onClick = { showPageOperationsDialog = false; viewModel.deleteCurrentPage() },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("Delete Current Page") }
+                    OutlinedButton(
+                        onClick = { showPageOperationsDialog = false; viewModel.extractCurrentPage() },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("Extract Current Page") }
+                    OutlinedButton(
+                        onClick = {
+                            showPageOperationsDialog = false
+                            mergePdfLauncher.launch(arrayOf("application/pdf"))
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("Merge With Other PDFs") }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showPageOperationsDialog = false }) { Text("Close") }
+            }
+        )
+    }
+
     // Save & Export Dialog
     if (showSaveDialog) {
         AlertDialog(
@@ -1270,7 +1481,7 @@ fun PdfEditorScreen(
             text = {
                 Column {
                     Text(
-                        text = "Edits and replacement text will be compiled into a brand new PDF document. The original file remains completely untouched.",
+                        text = "A new PDF copy will be created and the original file will remain untouched. Existing PDF page content is preserved. Added objects are appended as overlays; this does not directly replace existing PDF text objects. Bengali overlay text is rendered with Android text shaping and embedded as an image, so its appearance is preserved but that added Bengali text is not selectable or searchable. Direct editing of original Bengali PDF text is not supported yet.",
                         style = MaterialTheme.typography.bodyMedium
                     )
                     Spacer(modifier = Modifier.height(12.dp))
@@ -1307,8 +1518,8 @@ fun PdfEditorScreen(
             title = "PDF Exported Successfully!",
             file = success.exportedFile,
             additionalDetails = listOf(
-                "Pages" to "${viewModel.elements.value.size.coerceAtLeast(1)} modified pages",
-                "Format" to "Standard 72-DPI Vector PDF"
+                "Pages" to "${viewModel.elements.value.values.count { it.isNotEmpty() }} modified pages",
+                "Export" to "Original PDF content preserved; Bengali overlays are rendered as images"
             ),
             onDismiss = { viewModel.resetExportStatus() },
             onOpenFile = {
@@ -1434,10 +1645,30 @@ private fun EditorElementView(
                             drawLine(shapeColor, Offset(0f, 0f), Offset(size.width, size.height), strokeWidth = strokeW)
                         }
                         ShapeType.ARROW -> {
-                            drawLine(shapeColor, Offset(0f, size.height / 2f), Offset(size.width, size.height / 2f), strokeWidth = strokeW)
+                            val centerY = size.height / 2f
+                            val headLength = 10f * pxPerPt
+                            val headHalfHeight = 6f * pxPerPt
+                            drawLine(
+                                shapeColor,
+                                Offset(0f, centerY),
+                                Offset(size.width, centerY),
+                                strokeWidth = strokeW
+                            )
+                            drawLine(
+                                shapeColor,
+                                Offset(size.width - headLength, centerY - headHalfHeight),
+                                Offset(size.width, centerY),
+                                strokeWidth = strokeW
+                            )
+                            drawLine(
+                                shapeColor,
+                                Offset(size.width - headLength, centerY + headHalfHeight),
+                                Offset(size.width, centerY),
+                                strokeWidth = strokeW
+                            )
                         }
                         ShapeType.HIGHLIGHT_BOX -> {
-                            drawRect(shapeColor.copy(alpha = 0.35f))
+                            drawRect(shapeColor.copy(alpha = 0.35f * element.opacity.coerceIn(0f, 1f)))
                         }
                     }
                 }
@@ -1551,6 +1782,9 @@ private fun EditorToolButton(
         )
     }
 }
+
+private fun parsePdfPageSelection(input: String, pageCount: Int): List<Int>? =
+    parsePdfPageSelectionInput(input, pageCount)
 
 private fun String.capitalize(): String =
     replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }

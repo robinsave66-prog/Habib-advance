@@ -69,7 +69,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.core.sharing.FileSharingManager
-import com.example.engine.core.AdvancedPdfOperationsEngine
+import com.example.engine.pdfbox.PdfBoxDocumentEngine
 import com.example.feature.filemanager.formatFileSize
 import kotlinx.coroutines.launch
 import java.io.File
@@ -341,7 +341,7 @@ fun MergeSplitPdfScreen(
                             scope.launch {
                                 try {
                                     val uris = mergeItems.map { it.uri }
-                                    val result = AdvancedPdfOperationsEngine.mergePdfs(context, uris, mergeOutputName)
+                                    val result = PdfBoxDocumentEngine(context).mergePdfs(uris, mergeOutputName)
                                     onRegisterGeneratedFile(Uri.fromFile(result), result.name)
                                     resultSuccessFile = result
                                 } catch (e: Exception) {
@@ -454,7 +454,7 @@ fun MergeSplitPdfScreen(
                             isProcessing = true
                             scope.launch {
                                 try {
-                                    val result = AdvancedPdfOperationsEngine.splitPdf(context, uri, indices, splitOutputName)
+                                    val result = PdfBoxDocumentEngine(context).extractPages(uri, indices, splitOutputName)
                                     onRegisterGeneratedFile(Uri.fromFile(result), result.name)
                                     resultSuccessFile = result
                                 } catch (e: Exception) {

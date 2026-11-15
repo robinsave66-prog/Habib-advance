@@ -80,6 +80,7 @@ import com.example.feature.operations.DocxConversionScreen
 import com.example.feature.operations.MergeSplitMode
 import com.example.feature.operations.MergeSplitPdfScreen
 import com.example.feature.operations.OcrScannerScreen
+import com.example.feature.operations.PdfSecurityScreen
 import com.example.feature.operations.SignPdfScreen
 import com.example.feature.documentviewer.DocumentViewerScreen
 import com.example.feature.pdfeditor.PdfEditorScreen
@@ -195,6 +196,7 @@ fun MainAppHost(
 
     var showCompressPdf by remember { mutableStateOf(false) }
     var showOcrScanner by remember { mutableStateOf(false) }
+    var showPdfSecurity by remember { mutableStateOf(false) }
     var showSignPdf by remember { mutableStateOf(false) }
     var showConvertHub by remember { mutableStateOf(false) }
 
@@ -323,6 +325,23 @@ fun MainAppHost(
             onOpenPdf = { pdfUri, pdfName ->
                 fileManagerViewModel.registerImportedFile(pdfUri, pdfName)
                 showOcrScanner = false
+                viewingDocumentUri = pdfUri
+                viewingDocumentName = pdfName
+            },
+            onRegisterGeneratedFile = { uri, name ->
+                fileManagerViewModel.registerImportedFile(uri, name)
+            }
+        )
+        return
+    }
+
+    // PDF password protection and unlock screen
+    if (showPdfSecurity) {
+        PdfSecurityScreen(
+            onBackClick = { showPdfSecurity = false },
+            onOpenPdf = { pdfUri, pdfName ->
+                fileManagerViewModel.registerImportedFile(pdfUri, pdfName)
+                showPdfSecurity = false
                 viewingDocumentUri = pdfUri
                 viewingDocumentName = pdfName
             },
@@ -525,6 +544,7 @@ fun MainAppHost(
 
                 ScreenTab.TOOLS -> {
                     ToolsScreen(
+                        onSecurityClick = { showPdfSecurity = true },
                         onFeatureClick = { tool ->
                             when (tool.id) {
                                 "pdf_editor" -> openPdfForEditorLauncher.launch(arrayOf("application/pdf"))

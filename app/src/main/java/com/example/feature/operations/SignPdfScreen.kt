@@ -4,11 +4,10 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Paint
 import android.graphics.Path
-import android.graphics.pdf.PdfDocument
-import android.graphics.pdf.PdfRenderer
 import android.net.Uri
-import android.os.ParcelFileDescriptor
 import android.widget.Toast
+import com.example.engine.pdfbox.PdfSignatureStampEngine
+import java.io.ByteArrayOutputStream
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -155,6 +154,10 @@ fun SignPdfScreen(
     var targetPageToSign by remember { mutableIntStateOf(1) }
     var signedOutputName by remember { mutableStateOf("Signed_Document_${System.currentTimeMillis() % 10000}.pdf") }
     var isSigning by remember { mutableStateOf(false) }
+    var selectedSignatureFile by remember { mutableStateOf<File?>(null) }
+    var signatureHorizontalPosition by remember { mutableFloatStateOf(0.78f) }
+    var signatureVerticalPosition by remember { mutableFloatStateOf(0.08f) }
+    var signatureWidthFraction by remember { mutableFloatStateOf(0.38f) }
 
     // Universal Result Dialog state
     var resultDialogFile by remember { mutableStateOf<File?>(null) }
@@ -483,8 +486,9 @@ fun SignPdfScreen(
                                             shape = RoundedCornerShape(8.dp),
                                             colors = CardDefaults.cardColors(containerColor = Color.White),
                                             modifier = Modifier.size(100.dp, 60.dp).clickable {
+                                                selectedSignatureFile = file
                                                 currentTab = 1
-                                                Toast.makeText(context, "Selected signature for PDF", Toast.LENGTH_SHORT).show()
+                                                Toast.makeText(context, "Selected ${file.nameWithoutExtension} for PDF", Toast.LENGTH_SHORT).show()
                                             }
                                         ) {
                                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -558,6 +562,14 @@ fun SignPdfScreen(
                                 }
                             }
 
+                            Text("Signature Position & Size", fontWeight = FontWeight.SemiBold)
+                            Text("Horizontal: ${(signatureHorizontalPosition * 100).toInt()}%")
+                            Slider(value = signatureHorizontalPosition, onValueChange = { signatureHorizontalPosition = it }, valueRange = 0f..1f, modifier = Modifier.testTag("signature_horizontal_position"))
+                            Text("Vertical from bottom: ${(signatureVerticalPosition * 100).toInt()}%")
+                            Slider(value = signatureVerticalPosition, onValueChange = { signatureVerticalPosition = it }, valueRange = 0f..1f, modifier = Modifier.testTag("signature_vertical_position"))
+                            Text("Signature width: ${(signatureWidthFraction * 100).toInt()}% of page")
+                            Slider(value = signatureWidthFraction, onValueChange = { signatureWidthFraction = it }, valueRange = 0.10f..0.70f, modifier = Modifier.testTag("signature_width_fraction"))
+
                             OutlinedTextField(
                                 value = signedOutputName,
                                 onValueChange = { signedOutputName = it },
@@ -571,8 +583,8 @@ fun SignPdfScreen(
                     // Execute Sign Button
                     Button(
                         onClick = {
-                            if (strokes.isEmpty() && signatureLibrary.isEmpty()) {
-                                Toast.makeText(context, "Please draw a signature first in Signature Studio", Toast.LENGTH_SHORT).show()
+                            if (strokes.isEmpty() && selectedSignatureFile == null) {
+                                Toast.makeText(context, "Draw a signature or select one from the Signature Library.", Toast.LENGTH_SHORT).show()
                                 return@Button
                             }
                             val uri = selectedPdfUri
@@ -584,7 +596,23 @@ fun SignPdfScreen(
                             isSigning = true
                             scope.launch {
                                 try {
-                                    val result = stampSignatureOnPdf(context, uri, strokes, targetPageToSign, signedOutputName)
+                                    val signatureBytes = selectedSignatureFile?.takeIf { strokes.isEmpty() }?.readBytes()
+                                        ?: ByteArrayOutputStream().use { output ->
+                                            val bitmap = renderSmoothStrokesToBitmap(strokes, 500, 250)
+                                            try {
+                                                bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)
+                                                output.toByteArray()
+                                            } finally { bitmap.recycle() }
+                                        }
+                                    val result = PdfSignatureStampEngine(context).stamp(
+                                        sourceUri = uri,
+                                        signaturePng = signatureBytes,
+                                        targetPageOneBased = targetPageToSign,
+                                        outputFileName = signedOutputName,
+                                        horizontalPosition = signatureHorizontalPosition,
+                                        verticalPosition = signatureVerticalPosition,
+                                        widthFraction = signatureWidthFraction
+                                    )
                                     onRegisterGeneratedFile(Uri.fromFile(result), result.name)
                                     resultDialogFile = result
                                     resultDialogMime = "application/pdf"
@@ -701,77 +729,6 @@ private fun renderSmoothStrokesToBitmap(strokes: List<BézierStroke>, width: Int
     return bitmap
 }
 
-private suspend fun stampSignatureOnPdf(
-    context: Context,
-    sourceUri: Uri,
-    strokes: List<BézierStroke>,
-    targetPageOneBased: Int,
-    outputFileName: String
-): File = withContext(Dispatchers.IO) {
-    val dir = File(context.filesDir, "documents").apply { if (!exists()) mkdirs() }
-    val safeName = if (outputFileName.endsWith(".pdf", ignoreCase = true)) outputFileName else "$outputFileName.pdf"
-    val targetFile = File(dir, safeName)
-
-    val sigBmp = renderSmoothStrokesToBitmap(strokes, 400, 200)
-    val signedDoc = PdfDocument()
-    val tempSource = File(context.cacheDir, "temp_sign_${System.currentTimeMillis()}.pdf")
-
-    try {
-        context.contentResolver.openInputStream(sourceUri)?.use { input ->
-            FileOutputStream(tempSource).use { output -> input.copyTo(output) }
-        }
-
-        if (tempSource.exists() && tempSource.length() > 0) {
-            val pfd = ParcelFileDescriptor.open(tempSource, ParcelFileDescriptor.MODE_READ_ONLY)
-            val renderer = PdfRenderer(pfd)
-            val totalPages = renderer.pageCount
-            val pageToStampIndex = (targetPageOneBased - 1).coerceIn(0, totalPages - 1)
-
-            for (i in 0 until totalPages) {
-                val page = renderer.openPage(i)
-                val w = page.width
-                val h = page.height
-
-                val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-                bmp.eraseColor(android.graphics.Color.WHITE)
-                page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_PRINT)
-                page.close()
-
-                val pageInfo = PdfDocument.PageInfo.Builder(w, h, i + 1).create()
-                val newPage = signedDoc.startPage(pageInfo)
-                val c = newPage.canvas
-                c.drawBitmap(bmp, 0f, 0f, null)
-                bmp.recycle()
-
-                // Stamp signature on selected page
-                if (i == pageToStampIndex) {
-                    val sigW = 160f
-                    val sigH = 80f
-                    val sigX = w - sigW - 40f
-                    val sigY = h - sigH - 40f
-                    val destRect = android.graphics.RectF(sigX, sigY, sigX + sigW, sigY + sigH)
-                    c.drawBitmap(sigBmp, null, destRect, null)
-                }
-
-                signedDoc.finishPage(newPage)
-            }
-            renderer.close()
-            pfd.close()
-        }
-
-        FileOutputStream(targetFile).use { out ->
-            signedDoc.writeTo(out)
-        }
-        signedDoc.close()
-    } catch (_: Exception) {
-        com.example.core.sample.SamplePdfGenerator.createSamplePdfIfMissing(context)
-    } finally {
-        tempSource.delete()
-        sigBmp.recycle()
-    }
-
-    targetFile
-}
 
 private fun queryDocName(context: Context, uri: Uri): String? {
     var name: String? = null

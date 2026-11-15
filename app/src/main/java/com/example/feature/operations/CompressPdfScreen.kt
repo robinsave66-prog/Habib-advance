@@ -194,9 +194,9 @@ fun CompressPdfScreen(
                     Text("2. Compression Preset", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
 
                     listOf(
-                        Triple("Low", "High Quality", "Minimal compression, preserves fine graphics and typography."),
-                        Triple("Medium", "Balanced (Recommended)", "Optimal balance between small file size and document clarity."),
-                        Triple("High", "Maximum Compression", "Smallest file size, ideal for email and messaging attachments.")
+                        Triple("Low", "High Quality", "Lossless PDF rewrite; prioritizes preserving original content."),
+                        Triple("Medium", "Balanced (Recommended)", "Lossless PDF rewrite with native text and vector content preserved."),
+                        Triple("High", "Maximum Compression", "Lossless PDF rewrite; file-size reduction is not guaranteed.")
                     ).forEach { (level, title, desc) ->
                         val isSelected = compressionLevel.equals(level, ignoreCase = true)
                         Surface(
@@ -225,6 +225,18 @@ fun CompressPdfScreen(
                                 }
                             }
                         }
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.45f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "Important: This tool performs a lossless PDF rewrite and preserves searchable text and vector content. It does not rasterize pages, but a smaller file size is not guaranteed. Low, Medium and High currently use the same safe rewrite; different compression strengths are not implemented yet.",
+                            modifier = Modifier.padding(12.dp),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
                     }
                 }
             }
