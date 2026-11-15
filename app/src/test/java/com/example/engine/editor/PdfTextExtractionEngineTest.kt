@@ -68,6 +68,19 @@ class PdfTextExtractionEngineTest {
     }
 
     @Test
+    fun singleTapHitTestingFindsTextInsideAndNearItsBounds() {
+        val word = DetectedPdfWord(
+            text = "Habib",
+            bounds = android.graphics.RectF(40f, 40f, 82f, 58f),
+            pageIndex = 0
+        )
+
+        assertEquals(word, PdfTextExtractionEngine.findWordAt(55f, 49f, listOf(word)))
+        assertEquals(word, PdfTextExtractionEngine.findWordAt(88f, 49f, listOf(word)))
+        assertEquals(null, PdfTextExtractionEngine.findWordAt(110f, 90f, listOf(word)))
+    }
+
+    @Test
     fun returnsNoFabricatedWordsForBlankPdfPage() {
         runBlocking {
             val blank = File(context.cacheDir, "blank-text-extraction-test.pdf")
