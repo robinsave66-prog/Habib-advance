@@ -2,7 +2,7 @@ name: Build Signed Android Release
 
 on:
   push:
-    branches: [main, feature/open-source-document-engine]
+    branches: [main, feature/open-source-document-engine, feature/wps-style-variable-width-pdf-edit]
     paths:
       - 'app/**'
       - 'gradle/**'
@@ -70,7 +70,7 @@ jobs:
           test "$(stat -c%s app/src/main/assets/tessdata/eng.traineddata)" -eq 4113088
 
       - name: Run complete unit test suite (final release only)
-        if: ${{ github.ref == 'refs/heads/main' || inputs.publish_apk == true }}
+        if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/wps-style-variable-width-pdf-edit' || inputs.publish_apk == true }}
         run: gradle --no-configuration-cache testDebugUnitTest
 
       - name: Build signed release APK for targeted feature validation
@@ -83,7 +83,7 @@ jobs:
           gradle --no-configuration-cache assembleRelease
 
       - name: Verify APK package and signature
-        if: ${{ github.ref == 'refs/heads/main' || inputs.publish_apk == true }}
+        if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/wps-style-variable-width-pdf-edit' || inputs.publish_apk == true }}
         run: |
           APK="app/build/outputs/apk/release/app-release.apk"
           test -s "$APK"
