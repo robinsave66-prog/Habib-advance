@@ -104,9 +104,9 @@ jobs:
           target: aosp_atd
           arch: x86
           profile: pixel_2
-          cores: 2
-          ram-size: 2048M
-          heap-size: 512M
+          cores: 4
+          ram-size: 4096M
+          heap-size: 1024M
           avd-boot-timeout: 900
           emulator-boot-timeout: 900
           disable-animations: true
@@ -121,14 +121,34 @@ jobs:
           target: aosp_atd
           arch: x86
           profile: pixel_2
-          cores: 2
-          ram-size: 2048M
-          heap-size: 512M
+          cores: 4
+          ram-size: 4096M
+          heap-size: 1024M
           avd-boot-timeout: 900
           emulator-boot-timeout: 900
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
-          script: gradle --no-configuration-cache connectedDebugAndroidTest
+          script: |
+            set -eu
+            echo "Checking Android emulator responsiveness before instrumentation..."
+            adb wait-for-device
+            api_level=""
+            boot_completed=""
+            for attempt in $(seq 1 12); do
+              api_level="$(timeout 20s adb shell getprop ro.build.version.sdk 2>/dev/null | tr -d '\r' || true)"
+              boot_completed="$(timeout 20s adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
+              if [ "$api_level" = "30" ] && [ "$boot_completed" = "1" ]; then
+                echo "Emulator is responsive (API $api_level)."
+                break
+              fi
+              echo "Emulator not responsive yet (attempt $attempt/12; API='$api_level'; boot='$boot_completed')."
+              adb reconnect offline || true
+              sleep 5
+            done
+            test "$api_level" = "30"
+            test "$boot_completed" = "1"
+            adb devices -l
+            gradle --no-configuration-cache connectedDebugAndroidTest
 
       - name: Publish the single root APK
         if: ${{ github.ref == 'refs/heads/main' || inputs.publish_apk == true }}
