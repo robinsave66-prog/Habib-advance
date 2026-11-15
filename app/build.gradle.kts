@@ -246,7 +246,7 @@ androidComponents {
     val cargoBuild = tasks.register<PdfCraftCargoBuild>("buildPdfCraftNative$variantName") {
       cargo.set("cargo")
       workspacePath.set(pdfCraftSource.flatMap { it.outputDir }.map { it.asFile.absolutePath })
-      ndkPath.set(sdkComponents.ndkDirectory.map { it.asFile.absolutePath })
+      ndkPath.set(androidComponents.sdkComponents.ndkDirectory.map { it.asFile.absolutePath })
       abis.set(listOf("arm64-v8a", "armeabi-v7a", "x86_64"))
       outputDir.set(layout.buildDirectory.dir("generated/pdfcraft/jniLibs/${variant.name}"))
       dependsOn(pdfCraftSource)
