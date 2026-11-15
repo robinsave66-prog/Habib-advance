@@ -107,6 +107,8 @@ jobs:
           cores: 2
           ram-size: 2048M
           heap-size: 512M
+          avd-boot-timeout: 900
+          emulator-boot-timeout: 900
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           script: gradle --no-configuration-cache connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.example.engine.pdfbox.PdfNativeBengaliTextEditInstrumentedTest
@@ -122,6 +124,8 @@ jobs:
           cores: 2
           ram-size: 2048M
           heap-size: 512M
+          avd-boot-timeout: 900
+          emulator-boot-timeout: 900
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           script: gradle --no-configuration-cache connectedDebugAndroidTest
