@@ -5,6 +5,9 @@ import android.net.Uri
 import androidx.test.core.app.ApplicationProvider
 import com.example.engine.editor.TextElement
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
+import com.tom_roush.pdfbox.contentstream.operator.Operator
+import com.tom_roush.pdfbox.pdfparser.PDFStreamParser
+import com.tom_roush.pdfbox.cos.COSNumber
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.pdmodel.PDPage
 import com.tom_roush.pdfbox.pdmodel.PDPageContentStream
@@ -112,6 +115,47 @@ class PdfBoxOverlayExportEngineTest {
         }
         assertTrue(output.length() > 0L)
         assertTrue(source.exists())
+    }
+
+    @Test
+    fun replacementOverlayPaintsWhitePatchInsteadOfBlackRedaction() = runBlocking {
+        val overlay = TextElement(
+            pageIndex = 0,
+            x = 40f,
+            y = 80f,
+            width = 180f,
+            height = 24f,
+            text = "Replaced CV text",
+            fontSizePt = 12f,
+            textColor = 0xFF000000,
+            backgroundColor = 0xFFFFFFFF
+        )
+        val output = engine.export(
+            Uri.fromFile(source),
+            mapOf(0 to listOf(overlay)),
+            "white-text-replacement-patch-test.pdf"
+        )
+        PDDocument.load(output).use { result ->
+            val tokens = PDFStreamParser(result.getPage(0)).let { parser ->
+                parser.parse()
+                parser.tokens
+            }
+            val whiteFillExists = tokens.indices.any { index ->
+                val operator = tokens[index] as? Operator
+                if (operator?.name != "rg" || index < 3) false else {
+                    val red = (tokens[index - 3] as? COSNumber)?.floatValue()
+                    val green = (tokens[index - 2] as? COSNumber)?.floatValue()
+                    val blue = (tokens[index - 1] as? COSNumber)?.floatValue()
+                    red == 1f && green == 1f && blue == 1f
+                }
+            }
+            assertTrue("Replacement patch must be white, not opaque black", whiteFillExists)
+            val extracted = PDFTextStripper().getText(result)
+            assertTrue(extracted.contains("Original searchable text"))
+            assertTrue(extracted.contains("Replaced CV text"))
+        }
+        assertTrue(source.exists())
+        assertTrue(output.length() > 0L)
     }
 
     @Test
