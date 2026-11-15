@@ -14,8 +14,10 @@ plugins {
   alias(libs.plugins.google.services)
 }
 
-private const val PDFCRAFT_REVISION = "6873a87e0acecae61c0ac02422deb99e890abdf7"
-private const val PDFCRAFT_MIN_API = 29
+private object PdfCraftBuildConfig {
+  const val REVISION = "6873a87e0acecae61c0ac02422deb99e890abdf7"
+  const val MIN_API = 29
+}
 
 abstract class PreparePdfCraftSource : DefaultTask() {
   @get:Inject abstract val execOperations: ExecOperations
@@ -57,7 +59,7 @@ abstract class PdfCraftCargoBuild : DefaultTask() {
       environment("ANDROID_NDK_HOME", ndkPath.get())
       commandLine(
         listOf(cargo.get(), "ndk") + targets +
-          listOf("--platform", PDFCRAFT_MIN_API.toString(), "-o", out, "build", "--release", "--locked", "-p", "pdfcraft-android", "--lib")
+          listOf("--platform", PdfCraftBuildConfig.MIN_API.toString(), "-o", out, "build", "--release", "--locked", "-p", "pdfcraft-android", "--lib")
       )
     }
     File(out).walk().filter { it.isFile && it.name != "libpdfcraft_android.so" }.forEach { it.delete() }
@@ -236,7 +238,7 @@ dependencies {
 
 
 val pdfCraftSource = tasks.register<PreparePdfCraftSource>("preparePdfCraftSource") {
-  revision.set(PDFCRAFT_REVISION)
+  revision.set(PdfCraftBuildConfig.REVISION)
   outputDir.set(layout.buildDirectory.dir("pdfcraft-source"))
   outputs.upToDateWhen { false }
 }
