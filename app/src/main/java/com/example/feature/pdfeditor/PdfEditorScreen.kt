@@ -99,6 +99,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -110,6 +112,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -162,6 +165,16 @@ fun PdfEditorScreen(
     var isEditingExistingElement by remember { mutableStateOf(false) }
     var editingElementId by remember { mutableStateOf<String?>(null) }
     var textInput by remember { mutableStateOf("") }
+    val inlineTextFocusRequester = remember { FocusRequester() }
+    val softwareKeyboardController = LocalSoftwareKeyboardController.current
+    LaunchedEffect(inlineEditingText) {
+        if (inlineEditingText) {
+            inlineTextFocusRequester.requestFocus()
+            softwareKeyboardController?.show()
+        } else {
+            softwareKeyboardController?.hide()
+        }
+    }
     var textSizePt by remember { mutableFloatStateOf(16f) }
     var textColor by remember { mutableStateOf(0xFF000000) }
     var textBgColor by remember { mutableStateOf<Long?>(null) }
@@ -850,6 +863,7 @@ fun PdfEditorScreen(
                                                 ),
                                                 modifier = Modifier
                                                     .fillMaxWidth()
+                                                    .focusRequester(inlineTextFocusRequester)
                                                     .testTag("pdf_inline_text_input")
                                             )
                                             Row(
