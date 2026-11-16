@@ -495,13 +495,28 @@ fun PdfEditorScreen(
                             icon = Icons.Default.TextFields,
                             isSelected = activeTool == ActiveEditorTool.TEXT,
                             onClick = {
-                                isEditingExistingElement = false
-                                editingElementId = null
-                                textInput = ""
-                                textSizePt = 16f
-                                textColor = 0xFF000000
-                                textBgColor = null
-                                showTextDialog = true
+                                if (selectedWords.isNotEmpty()) {
+                                    // Selected PDF text is edited directly at its page position.
+                                    val first = selectedWords.first()
+                                    isEditingExistingElement = false
+                                    editingElementId = null
+                                    textInput = selectedWords.joinToString(" ") { it.text }
+                                    textSizePt = first.fontSizePt
+                                    textColor = first.textColor
+                                    textBold = first.isBold
+                                    textItalic = first.isItalic
+                                    inlineEditError = null
+                                    inlineEditingText = true
+                                    showTextDialog = false
+                                } else {
+                                    isEditingExistingElement = false
+                                    editingElementId = null
+                                    textInput = ""
+                                    textSizePt = 16f
+                                    textColor = 0xFF000000
+                                    textBgColor = null
+                                    showTextDialog = true
+                                }
                             },
                             testTag = "tool_text"
                         )
@@ -731,37 +746,37 @@ fun PdfEditorScreen(
                                         translationX = panOffsetX
                                         translationY = panOffsetY
                                     }
-                                    .pointerInput(interactionMode) {
-                                        if (interactionMode != EditorInteractionMode.PAGE_NAV) {
-                                            detectTapGestures(
-                                                onTap = { offset ->
-                                                    // A single tap selects PDF text and reveals the contextual Edit action.
-                                                    // Tapping blank page space clears the current selection.
-                                                    viewModel.onTapAtPoint(offset.x / pxPerPt, offset.y / pxPerPt)
-                                                },
-                                                onDoubleTap = {
-                                                    zoomScale = if (zoomScale > 1.2f) 1.0f else 2.0f
-                                                    if (zoomScale == 1.0f) {
-                                                        panOffsetX = 0f
-                                                        panOffsetY = 0f
+                                    .pointerInput(interactionMode, inlineEditingText) {
+                                        // While the inline field is active, its taps must not be
+                                        // interpreted as page hit-tests that clear the selection.
+                                        if (!inlineEditingText) {
+                                            if (interactionMode != EditorInteractionMode.PAGE_NAV) {
+                                                detectTapGestures(
+                                                    onTap = { offset ->
+                                                        viewModel.onTapAtPoint(offset.x / pxPerPt, offset.y / pxPerPt)
+                                                    },
+                                                    onDoubleTap = {
+                                                        zoomScale = if (zoomScale > 1.2f) 1.0f else 2.0f
+                                                        if (zoomScale == 1.0f) {
+                                                            panOffsetX = 0f
+                                                            panOffsetY = 0f
+                                                        }
+                                                    },
+                                                    onLongPress = { offset ->
+                                                        viewModel.onLongPressAtPoint(offset.x / pxPerPt, offset.y / pxPerPt)
                                                     }
-                                                },
-                                                onLongPress = { offset ->
-                                                    val touchPtX = offset.x / pxPerPt
-                                                    val touchPtY = offset.y / pxPerPt
-                                                    viewModel.onLongPressAtPoint(touchPtX, touchPtY)
-                                                }
-                                            )
-                                        } else {
-                                            detectTapGestures(
-                                                onDoubleTap = {
-                                                    zoomScale = if (zoomScale > 1.2f) 1.0f else 2.0f
-                                                    if (zoomScale == 1.0f) {
-                                                        panOffsetX = 0f
-                                                        panOffsetY = 0f
+                                                )
+                                            } else {
+                                                detectTapGestures(
+                                                    onDoubleTap = {
+                                                        zoomScale = if (zoomScale > 1.2f) 1.0f else 2.0f
+                                                        if (zoomScale == 1.0f) {
+                                                            panOffsetX = 0f
+                                                            panOffsetY = 0f
+                                                        }
                                                     }
-                                                }
-                                            )
+                                                )
+                                            }
                                         }
                                     }
                             ) {
