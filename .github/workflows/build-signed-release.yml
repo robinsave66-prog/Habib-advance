@@ -127,24 +127,32 @@ jobs:
           # The emulator action executes script lines separately; delegate to one standalone Bash process.
           script: bash .github/scripts/run-android-instrumentation.sh
 
-      - name: Publish the single root APK
+      - name: Publish APK as a GitHub Release asset
         if: ${{ github.ref == 'refs/heads/main' || inputs.publish_apk == true }}
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          find . -maxdepth 1 -type f -name '*.apk' ! -name 'Habib_Advance_Editor_Complete.apk' -delete
-          cp app/build/outputs/apk/release/app-release.apk Habib_Advance_Editor_Complete.apk
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Habib_Advance_Editor_Complete.apk
-          git commit -m "Publish verified signed Habib Advance Editor APK" || echo "No APK changes to commit"
-          git push
+          APK="app/build/outputs/apk/release/app-release.apk"
+          RELEASE_TAG="habib-advance-build-${GITHUB_RUN_NUMBER}"
+          gh release create "$RELEASE_TAG" "$APK#Habib_Advance_Editor_Complete.apk" \
+            --title "Habib Advance Editor build ${GITHUB_RUN_NUMBER}" \
+            --notes "Verified signed Android APK. Package: com.habib.advanceeditor. Built from commit ${GITHUB_SHA} after unit and Android instrumentation tests passed."
+
+          # GitHub rejects ordinary Git files larger than 100 MB. Retire the previous
+          # root APK only after the replacement has been uploaded successfully as a release asset.
+          if git ls-files --error-unmatch Habib_Advance_Editor_Complete.apk >/dev/null 2>&1; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git rm Habib_Advance_Editor_Complete.apk
+            git commit -m "Retire oversized root APK; publish release asset instead"
+            git push
+          fi
 
       - name: Upload APK artifact
-        if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/wps-style-variable-width-pdf-edit' || github.ref == 'refs/heads/fix/direct-page-inline-pdf-text-edit' || github.ref == 'refs/heads/feature/pdfcraft-native-text-engine' || inputs.publish_apk == true }}
+        if: ${{ always() && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/wps-style-variable-width-pdf-edit' || github.ref == 'refs/heads/fix/direct-page-inline-pdf-text-edit' || github.ref == 'refs/heads/feature/pdfcraft-native-text-engine' || inputs.publish_apk == true) }}
         uses: actions/upload-artifact@v4
         with:
           name: Habib_Advance_Editor_Complete
-          path: |
-            app/build/outputs/apk/release/app-release.apk
-            Habib_Advance_Editor_Complete.apk
+          path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 30
