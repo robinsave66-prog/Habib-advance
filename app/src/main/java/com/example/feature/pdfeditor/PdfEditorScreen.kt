@@ -37,6 +37,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -98,6 +99,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -109,6 +112,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -161,6 +165,16 @@ fun PdfEditorScreen(
     var isEditingExistingElement by remember { mutableStateOf(false) }
     var editingElementId by remember { mutableStateOf<String?>(null) }
     var textInput by remember { mutableStateOf("") }
+    val inlineTextFocusRequester = remember { FocusRequester() }
+    val softwareKeyboardController = LocalSoftwareKeyboardController.current
+    LaunchedEffect(inlineEditingText) {
+        if (inlineEditingText) {
+            inlineTextFocusRequester.requestFocus()
+            softwareKeyboardController?.show()
+        } else {
+            softwareKeyboardController?.hide()
+        }
+    }
     var textSizePt by remember { mutableFloatStateOf(16f) }
     var textColor by remember { mutableStateOf(0xFF000000) }
     var textBgColor by remember { mutableStateOf<Long?>(null) }
@@ -781,7 +795,7 @@ fun PdfEditorScreen(
                                     }
 
                                     // 2. Long-Press Selected Words Highlight Overlay Layer
-                                    if (selectedWords.isNotEmpty()) {
+                                    if (selectedWords.isNotEmpty() && !inlineEditingText) {
                                         Canvas(modifier = Modifier.fillMaxSize()) {
                                             for (word in selectedWords) {
                                                 val leftPx = word.bounds.left * pxPerPt
@@ -806,7 +820,9 @@ fun PdfEditorScreen(
                                         }
                                     }
 
-                                    // 3. Inline PDF text editor: edit directly over the selected page text.
+                                    // 3. Edit the selected PDF text at its original page coordinates.
+                                    // The input replaces the selected glyphs visually while editing;
+                                    // Save writes the replacement into the PDF content stream.
                                     if (inlineEditingText && (selectedWords.isNotEmpty() || inlineEditingElement != null)) {
                                         val editBounds = if (selectedWords.isNotEmpty()) android.graphics.RectF(
                                             selectedWords.minOf { it.bounds.left },
@@ -820,30 +836,35 @@ fun PdfEditorScreen(
                                             inlineEditingElement.y + inlineEditingElement.height
                                         )
                                         val editorX = with(density) { (editBounds.left * pxPerPt).toDp() }
-                                            .coerceIn(0.dp, (fittedWidthDp - 260.dp).coerceAtLeast(0.dp))
-                                        val editorY = with(density) { ((editBounds.bottom + 4f) * pxPerPt).toDp() }
-                                            .coerceAtMost((fittedHeightDp - 116.dp).coerceAtLeast(0.dp))
+                                            .coerceIn(0.dp, (fittedWidthDp - 120.dp).coerceAtLeast(0.dp))
+                                        val editorY = with(density) { (editBounds.top * pxPerPt).toDp() }
+                                            .coerceIn(0.dp, (fittedHeightDp - 42.dp).coerceAtLeast(0.dp))
+                                        val editorWidth = with(density) {
+                                            ((editBounds.right - editBounds.left) * pxPerPt).toDp()
+                                        }.coerceIn(120.dp, (fittedWidthDp - editorX).coerceAtLeast(120.dp))
                                         Column(
                                             modifier = Modifier
                                                 .offset(x = editorX, y = editorY)
-                                                .width(260.dp)
-                                                .background(Color.White, RoundedCornerShape(10.dp))
-                                                .border(1.dp, Color(0xFF2196F3), RoundedCornerShape(10.dp))
-                                                .padding(8.dp),
-                                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                                                .width(editorWidth)
+                                                .background(Color.White)
+                                                .border(1.dp, Color(0xFF1976D2))
+                                                .padding(horizontal = 2.dp, vertical = 1.dp),
+                                            verticalArrangement = Arrangement.spacedBy(2.dp)
                                         ) {
-                                            Text("Edit selected text", color = Color(0xFF0F3B66), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
-                                            Text(
-                                                "The original PDF text is being edited directly. Its embedded font, size, color and page position are retained. Scanned text or unsupported font/content layouts must be processed with OCR or another supported workflow first.",
-                                                color = Color(0xFF526477),
-                                                style = MaterialTheme.typography.bodySmall
-                                            )
-                                            OutlinedTextField(
+                                            BasicTextField(
                                                 value = textInput,
                                                 onValueChange = { textInput = it },
                                                 singleLine = true,
-                                                modifier = Modifier.fillMaxWidth().testTag("pdf_inline_text_input"),
-                                                label = { Text("Text") }
+                                                textStyle = MaterialTheme.typography.bodyMedium.copy(
+                                                    color = Color(textColor),
+                                                    fontSize = textSizePt.sp,
+                                                    fontWeight = if (textBold) FontWeight.Bold else FontWeight.Normal,
+                                                    fontStyle = if (textItalic) FontStyle.Italic else FontStyle.Normal
+                                                ),
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .focusRequester(inlineTextFocusRequester)
+                                                    .testTag("pdf_inline_text_input")
                                             )
                                             Row(
                                                 modifier = Modifier.fillMaxWidth(),
@@ -854,15 +875,18 @@ fun PdfEditorScreen(
                                                     Text(
                                                         message,
                                                         color = MaterialTheme.colorScheme.error,
-                                                        style = MaterialTheme.typography.bodySmall
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        maxLines = 1
                                                     )
                                                 }
-                                                TextButton(onClick = {
-                                                    inlineEditingText = false
-                                                    editingElementId = null
-                                                    inlineEditError = null
-                                                }) { Text("Cancel") }
-                                                Button(
+                                                TextButton(
+                                                    onClick = {
+                                                        inlineEditingText = false
+                                                        editingElementId = null
+                                                        inlineEditError = null
+                                                    }
+                                                ) { Text("Cancel") }
+                                                TextButton(
                                                     onClick = {
                                                         inlineEditError = null
                                                         if (inlineEditingElement != null && editingElementId != null) {

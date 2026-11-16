@@ -135,6 +135,37 @@ class PdfNativeTextEditEngineTest {
     }
 
     @Test
+    fun replacesPhraseAcrossTjStringsSeparatedByKerningAdjustment() = runBlocking {
+        val splitSource = File(context.cacheDir, "native-text-edit-kerned-split-tj.pdf")
+        PDDocument().use { document ->
+            val page = PDPage(PDRectangle(420f, 600f))
+            document.addPage(page)
+            PDPageContentStream(document, page).use { stream ->
+                stream.beginText()
+                stream.setFont(PDType1Font.HELVETICA, 12f)
+                stream.newLineAtOffset(40f, 540f)
+                stream.showTextWithPositioning(arrayOf<Any>("Start A", -120f, "BC End"))
+                stream.endText()
+            }
+            document.save(splitSource)
+        }
+        val originalEndX = findGlyphX(splitSource, "E")
+        val output = engine.replaceText(
+            Uri.fromFile(splitSource), 0, "ABC", "WWW", "native-kerned-split-tj.pdf"
+        )
+        PDDocument.load(output).use { edited ->
+            val text = PDFTextStripper().getText(edited)
+            assertTrue(text.contains("Start WWW End"))
+            assertFalse(text.contains("Start ABC End"))
+        }
+        val editedEndX = findGlyphX(output, "E")
+        assertTrue(
+            "The suffix position must remain unchanged across a kerning-separated replacement (old=$originalEndX, new=$editedEndX)",
+            kotlin.math.abs(originalEndX - editedEndX) < 0.1f
+        )
+    }
+
+    @Test
     fun replacesLatinTextWithAccentedLatinCharacterWhenFontHasMatchingAdvance() = runBlocking {
         val output = engine.replaceText(
             Uri.fromFile(source), 0, "A", "À", "native-accented-latin.pdf"
