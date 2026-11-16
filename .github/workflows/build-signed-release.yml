@@ -102,39 +102,28 @@ jobs:
         run: |
           keytool -genkeypair -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -dname "CN=Android Debug,O=Android,C=US" -keyalg RSA -keysize 2048 -validity 10000
 
-      - name: Verify Bengali native PDF text replacement and Unicode extraction
-        if: ${{ github.ref == 'refs/heads/feature/open-source-document-engine' || github.ref == 'refs/heads/feature/wps-style-variable-width-pdf-edit' || github.ref == 'refs/heads/fix/direct-page-inline-pdf-text-edit' || github.ref == 'refs/heads/feature/pdfcraft-native-text-engine' }}
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: 30
-          target: google_apis
-          arch: x86_64
-          profile: pixel_2
-          cores: 4
-          ram-size: 4096M
-          heap-size: 1024M
-          avd-boot-timeout: 900
-          emulator-boot-timeout: 900
-          disable-animations: true
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
-          script: bash -euo pipefail -c 'echo "Checking Android emulator responsiveness before targeted Bengali PDF instrumentation..."; timeout 120s adb wait-for-device; api_level=""; boot_completed=""; for attempt in $(seq 1 24); do api_level="$(timeout 20s adb shell getprop ro.build.version.sdk 2>/dev/null | tr -d "\\r" || true)"; boot_completed="$(timeout 20s adb shell getprop sys.boot_completed 2>/dev/null | tr -d "\\r" || true)"; if [ "$api_level" = "30" ] && [ "$boot_completed" = "1" ]; then echo "Emulator is responsive (API $api_level)."; break; fi; echo "Emulator not responsive yet (attempt $attempt/24; API=$api_level; boot=$boot_completed)."; adb reconnect offline || true; sleep 5; done; test "$api_level" = "30"; test "$boot_completed" = "1"; adb devices -l; gradle --no-configuration-cache connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.example.engine.pdfbox.PdfNativeBengaliTextEditInstrumentedTest'
+      - name: Prepare Android instrumentation APKs before emulator startup
+        if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/open-source-document-engine' || github.ref == 'refs/heads/feature/wps-style-variable-width-pdf-edit' || github.ref == 'refs/heads/fix/direct-page-inline-pdf-text-edit' || github.ref == 'refs/heads/feature/pdfcraft-native-text-engine' || inputs.publish_apk == true }}
+        run: |
+          # Compile and package both APKs before the emulator consumes runner resources.
+          gradle --no-configuration-cache assembleDebug assembleDebugAndroidTest
 
-      - name: Run complete Android instrumentation suite
-        if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/wps-style-variable-width-pdf-edit' || github.ref == 'refs/heads/fix/direct-page-inline-pdf-text-edit' || github.ref == 'refs/heads/feature/pdfcraft-native-text-engine' || inputs.publish_apk == true }}
+      - name: Run PDF validation and complete Android instrumentation suite
+        if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/open-source-document-engine' || github.ref == 'refs/heads/feature/wps-style-variable-width-pdf-edit' || github.ref == 'refs/heads/fix/direct-page-inline-pdf-text-edit' || github.ref == 'refs/heads/feature/pdfcraft-native-text-engine' || inputs.publish_apk == true }}
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 30
           target: google_apis
           arch: x86_64
           profile: pixel_2
-          cores: 4
-          ram-size: 4096M
-          heap-size: 1024M
-          avd-boot-timeout: 900
+          # Keep the guest footprint below the previous 4-core / 4-GB configuration.
+          cores: 2
+          ram-size: 2048M
+          heap-size: 512M
           emulator-boot-timeout: 900
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
-          script: bash -euo pipefail -c 'echo "Checking Android emulator responsiveness before instrumentation..."; adb wait-for-device; api_level=""; boot_completed=""; for attempt in $(seq 1 12); do api_level="$(timeout 20s adb shell getprop ro.build.version.sdk 2>/dev/null | tr -d "\\r" || true)"; boot_completed="$(timeout 20s adb shell getprop sys.boot_completed 2>/dev/null | tr -d "\\r" || true)"; if [ "$api_level" = "30" ] && [ "$boot_completed" = "1" ]; then echo "Emulator is responsive (API $api_level)."; break; fi; echo "Emulator not responsive yet (attempt $attempt/12; API=$api_level; boot=$boot_completed)."; adb reconnect offline || true; sleep 5; done; test "$api_level" = "30"; test "$boot_completed" = "1"; adb devices -l; gradle --no-configuration-cache connectedDebugAndroidTest'
+          script: bash -euo pipefail -c 'set -o pipefail; dump_diagnostics() { rc=$?; if [ "$rc" -ne 0 ]; then echo "=== Emulator diagnostics after instrumentation failure ==="; adb devices -l || true; timeout 15s adb shell getprop ro.build.version.sdk || true; timeout 15s adb shell getprop sys.boot_completed || true; timeout 20s adb logcat -d -t 400 || true; timeout 15s adb shell dumpsys meminfo || true; fi; exit "$rc"; }; trap dump_diagnostics EXIT; echo "Waiting for Android API 30 emulator..."; timeout 120s adb wait-for-device; api_level=""; boot_completed=""; for attempt in $(seq 1 24); do api_level="$(timeout 15s adb shell getprop ro.build.version.sdk 2>/dev/null | tr -d "\\r" || true)"; boot_completed="$(timeout 15s adb shell getprop sys.boot_completed 2>/dev/null | tr -d "\\r" || true)"; if [ "$api_level" = "30" ] && [ "$boot_completed" = "1" ]; then echo "Emulator is responsive (API $api_level)."; break; fi; echo "Emulator not ready (attempt $attempt/24; API=$api_level; boot=$boot_completed)."; sleep 5; done; test "$api_level" = "30"; test "$boot_completed" = "1"; adb devices -l; if [ "$GITHUB_REF" = "refs/heads/feature/open-source-document-engine" ] || [ "$GITHUB_REF" = "refs/heads/feature/wps-style-variable-width-pdf-edit" ] || [ "$GITHUB_REF" = "refs/heads/fix/direct-page-inline-pdf-text-edit" ] || [ "$GITHUB_REF" = "refs/heads/feature/pdfcraft-native-text-engine" ]; then echo "Running focused Bengali PDF text replacement test..."; gradle --no-configuration-cache connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.example.engine.pdfbox.PdfNativeBengaliTextEditInstrumentedTest; fi; echo "Running complete Android instrumentation suite on the same emulator..."; gradle --no-configuration-cache connectedDebugAndroidTest'
 
       - name: Publish the single root APK
         if: ${{ github.ref == 'refs/heads/main' || inputs.publish_apk == true }}
