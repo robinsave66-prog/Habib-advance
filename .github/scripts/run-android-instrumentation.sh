@@ -87,8 +87,10 @@ run_instrumentation() {
   status=$?
   set -e
   cat "$output"
-  if [[ "$status" -ne 0 ]] || ! grep -q "INSTRUMENTATION_CODE: 0" "$output"; then
-    echo "Instrumentation did not report a successful completion (exit=$status)."
+  # Android Instrumentation uses Activity.RESULT_OK (-1) for successful completion.
+  # The previous check incorrectly expected 0 (RESULT_CANCELED), rejecting passing tests.
+  if [[ "$status" -ne 0 ]] || ! grep -Eq "^INSTRUMENTATION_CODE: -1$" "$output" || ! grep -Eq "^OK \([0-9]+ tests?\)$" "$output"; then
+    echo "Instrumentation did not report a successful completion with passing tests (exit=$status)."
     rm -f "$output"
     return 1
   fi
