@@ -49,14 +49,19 @@ manifest = subprocess.check_output(
     [analyzer, "manifest", "print", apk], text=True
 )
 root = ET.fromstring(manifest)
-ns = "{http://schemas.android.com/apk/res/android}"
+def manifest_attr(element, name):
+    for key, value in element.attrib.items():
+        if key == name or key.endswith("}" + name):
+            return value
+    raise SystemExit(f"Android manifest is missing instrumentation attribute: {name}")
+
 instrumentation = root.find("instrumentation")
 if instrumentation is None:
     raise SystemExit("Android test APK has no instrumentation declaration")
 print("|".join((
     root.attrib["package"],
-    instrumentation.attrib["targetPackage"],
-    instrumentation.attrib[ns + "name"],
+    manifest_attr(instrumentation, "targetPackage"),
+    manifest_attr(instrumentation, "name"),
 )))
 PY
 )"
