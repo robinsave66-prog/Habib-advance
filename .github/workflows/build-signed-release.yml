@@ -9,6 +9,7 @@ on:
       - '*.gradle.kts'
       - 'settings.gradle.kts'
       - '.github/workflows/build-signed-release.yml'
+      - '.github/scripts/**'
   workflow_dispatch:
     inputs:
       publish_apk:
