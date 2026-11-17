@@ -50,6 +50,27 @@ class PdfSecureRedactionEngineTest {
     }
 
     @Test
+    fun scannedTextReplacementCanPaintOpaqueWhiteWithoutChangingOutsidePixels() {
+        val bitmap = Bitmap.createBitmap(100, 100, Bitmap.Config.ARGB_8888)
+        try {
+            bitmap.eraseColor(Color.BLACK)
+            engine.applyRedactionRectangles(
+                bitmap = bitmap,
+                rectanglesInPoints = listOf(RectF(20f, 20f, 40f, 40f)),
+                pageWidthPoints = 100f,
+                pageHeightPoints = 100f,
+                fillColor = Color.WHITE
+            )
+            assertEquals(Color.WHITE, bitmap.getPixel(20, 20))
+            assertEquals(Color.WHITE, bitmap.getPixel(40, 40))
+            assertEquals(Color.BLACK, bitmap.getPixel(10, 10))
+            assertEquals(Color.BLACK, bitmap.getPixel(50, 50))
+        } finally {
+            bitmap.recycle()
+        }
+    }
+
+    @Test
     fun rasterizedReplacementPageContainsImageButNoSearchableOriginalText() {
         val output = File(context.cacheDir, "secure-redaction-flattened-test.pdf")
         val bitmap = Bitmap.createBitmap(120, 160, Bitmap.Config.ARGB_8888)

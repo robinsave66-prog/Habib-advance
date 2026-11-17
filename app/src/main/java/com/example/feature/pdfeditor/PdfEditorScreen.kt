@@ -155,6 +155,7 @@ fun PdfEditorScreen(
     var showSaveDialog by remember { mutableStateOf(false) }
     var showPageOperationsDialog by remember { mutableStateOf(false) }
     var showRedactionConfirm by remember { mutableStateOf(false) }
+    var showOcrReplaceConfirm by remember { mutableStateOf(false) }
     var inlineEditingText by remember { mutableStateOf(false) }
     var inlineEditError by remember { mutableStateOf<String?>(null) }
     var pageSelectionInput by remember { mutableStateOf("1") }
@@ -917,6 +918,8 @@ fun PdfEditorScreen(
                                                                 textAlign = textAlign
                                                             )
                                                             inlineEditingText = false
+                                                        } else if (selectedWords.any { it.isOcr }) {
+                                                            showOcrReplaceConfirm = true
                                                         } else {
                                                             viewModel.replaceSelectedWords(
                                                                 newText = textInput,
@@ -1087,6 +1090,47 @@ fun PdfEditorScreen(
                 else -> {}
             }
         }
+    }
+
+    if (showOcrReplaceConfirm) {
+        AlertDialog(
+            onDismissRequest = { showOcrReplaceConfirm = false },
+            title = { Text("Replace scanned-page text?") },
+            text = {
+                Text(
+                    "This operation covers the OCR-selected area with white, then places the replacement text there. To remove the old pixels securely, every page will be flattened to a 300-DPI image. Searchable/selectable text, vector content, forms, annotations, metadata and embedded files will not be retained. This cannot be undone. Keep the original PDF backup."
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showOcrReplaceConfirm = false
+                        viewModel.replaceSelectedWords(
+                            newText = textInput,
+                            fontSizePt = textSizePt,
+                            textColor = textColor,
+                            backgroundColor = 0xFFFFFFFF,
+                            isBold = textBold,
+                            isItalic = textItalic,
+                            isUnderline = textUnderline,
+                            textAlign = textAlign,
+                            onComplete = { success, message ->
+                                if (success) {
+                                    inlineEditingText = false
+                                    editingElementId = null
+                                    inlineEditError = null
+                                } else {
+                                    inlineEditError = message
+                                }
+                            }
+                        )
+                    }
+                ) { Text("Flatten & Replace") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showOcrReplaceConfirm = false }) { Text("Cancel") }
+            }
+        )
     }
 
     if (showRedactionConfirm) {

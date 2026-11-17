@@ -30,7 +30,8 @@ class PdfSecureRedactionEngine(private val context: Context) {
     suspend fun redact(
         sourceUri: Uri,
         redactionsByPage: Map<Int, List<RectF>>,
-        outputFileName: String
+        outputFileName: String,
+        fillColor: Int = Color.BLACK
     ): File = withContext(Dispatchers.IO) {
         require(redactionsByPage.isNotEmpty() && redactionsByPage.values.any { it.isNotEmpty() }) {
             "Select at least one area to redact."
@@ -71,7 +72,7 @@ class PdfSecureRedactionEngine(private val context: Context) {
                         page.render(bitmap, null, matrix, PdfRenderer.Page.RENDER_MODE_FOR_PRINT)
                         val boxes = redactionsByPage[pageIndex].orEmpty()
                         if (boxes.isNotEmpty()) {
-                            applyRedactionRectangles(bitmap, boxes, page.width.toFloat(), page.height.toFloat())
+                            applyRedactionRectangles(bitmap, boxes, page.width.toFloat(), page.height.toFloat(), fillColor = fillColor)
                         }
                         appendRasterizedPage(outputDocument, bitmap, page.width.toFloat(), page.height.toFloat())
                     } finally {
@@ -98,7 +99,8 @@ class PdfSecureRedactionEngine(private val context: Context) {
         rectanglesInPoints: List<RectF>,
         pageWidthPoints: Float,
         pageHeightPoints: Float,
-        expansionPoints: Float = REDACTION_EXPANSION_POINTS
+        expansionPoints: Float = REDACTION_EXPANSION_POINTS,
+        fillColor: Int = Color.BLACK
     ) {
         require(!bitmap.isRecycled) { "Cannot redact a recycled page image." }
         require(pageWidthPoints > 0f && pageHeightPoints > 0f) { "Page dimensions must be positive." }
@@ -119,7 +121,7 @@ class PdfSecureRedactionEngine(private val context: Context) {
             }
             // Write opaque pixels directly. This avoids canvas backend variability and guarantees
             // the redaction pixels are baked into the bitmap before it is encoded into the PDF.
-            val row = IntArray(right - left) { Color.BLACK }
+            val row = IntArray(right - left) { fillColor }
             for (y in top until bottom) {
                 bitmap.setPixels(row, 0, row.size, left, y, row.size, 1)
             }

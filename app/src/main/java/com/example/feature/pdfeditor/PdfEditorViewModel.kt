@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Color
 import android.graphics.RectF
 import android.net.Uri
 import androidx.lifecycle.ViewModel
@@ -375,12 +376,7 @@ class PdfEditorViewModel(
         onComplete: (Boolean, String?) -> Unit = { _, _ -> }
     ) {
         val words = _selectedWords.value
-        if (words.any { it.isOcr }) {
-            val message = "This text was recognized from the page image by OCR; it is not stored as editable PDF text. Native text replacement is unavailable for this scanned area, and the original PDF has not been changed."
-            _status.value = EditorUiStatus.Error(message)
-            onComplete(false, message)
-            return
-        }
+        val isOcrSelection = words.any { it.isOcr }
         if (words.isEmpty()) {
             val message = "Select existing PDF text before editing it."
             _status.value = EditorUiStatus.Error(message)
@@ -409,16 +405,66 @@ class PdfEditorViewModel(
             return
         }
 
-        _status.value = EditorUiStatus.Exporting("Replacing the original PDF text…")
+        _status.value = EditorUiStatus.Exporting(
+            if (isOcrSelection) "Replacing scanned-page text and flattening PDF pages…" else "Replacing the original PDF text…"
+        )
         viewModelScope.launch {
+            var flattenedSource: File? = null
             try {
-                val editedFile = nativeTextEditEngine.replaceText(
-                    sourceUri = source,
-                    pageIndex = page,
-                    oldText = oldText,
-                    newText = newText,
-                    outputFileName = "Native_Text_Edit_${System.currentTimeMillis()}.pdf"
-                )
+                val editedFile = if (isOcrSelection) {
+                    val selectedBounds = RectF(
+                        words.minOf { it.bounds.left },
+                        words.minOf { it.bounds.top },
+                        words.maxOf { it.bounds.right },
+                        words.maxOf { it.bounds.bottom }
+                    )
+                    require(selectedBounds.width() > 0f && selectedBounds.height() > 0f) {
+                        "The OCR selection has invalid page coordinates."
+                    }
+                    val flattened = secureRedactionEngine.redact(
+                        sourceUri = source,
+                        redactionsByPage = mapOf(page to listOf(selectedBounds)),
+                        outputFileName = "Scanned_Text_Base_${System.currentTimeMillis()}.pdf",
+                        fillColor = Color.WHITE
+                    )
+                    flattenedSource = flattened
+                    val replacementWidth = maxOf(
+                        selectedBounds.width(),
+                        newText.length * fontSizePt * 0.55f
+                    ).coerceAtMost((_pageDimensions.value.first - selectedBounds.left).coerceAtLeast(selectedBounds.width()))
+                    val replacementHeight = maxOf(selectedBounds.height(), fontSizePt * 1.5f)
+                    overlayExportEngine.export(
+                        sourceUri = Uri.fromFile(flattened),
+                        elementsByPage = mapOf(
+                            page to listOf(
+                                TextElement(
+                                    pageIndex = page,
+                                    x = selectedBounds.left,
+                                    y = selectedBounds.top,
+                                    width = replacementWidth,
+                                    height = replacementHeight,
+                                    text = newText,
+                                    fontSizePt = fontSizePt.coerceAtLeast(1f),
+                                    textColor = textColor,
+                                    isBold = isBold,
+                                    isItalic = isItalic,
+                                    isUnderline = isUnderline,
+                                    backgroundColor = Color.WHITE.toLong(),
+                                    textAlign = textAlign
+                                )
+                            )
+                        ),
+                        outputFileName = "Scanned_Text_Replacement_${System.currentTimeMillis()}.pdf"
+                    )
+                } else {
+                    nativeTextEditEngine.replaceText(
+                        sourceUri = source,
+                        pageIndex = page,
+                        oldText = oldText,
+                        newText = newText,
+                        outputFileName = "Native_Text_Edit_${System.currentTimeMillis()}.pdf"
+                    )
+                }
                 val editedUri = FileProvider.getUriForFile(
                     context,
                     "${context.packageName}.fileprovider",
@@ -451,9 +497,11 @@ class PdfEditorViewModel(
                     }
                 }
             } catch (error: Exception) {
-                val message = error.localizedMessage ?: "Native PDF text editing failed."
+                val message = error.localizedMessage ?: "PDF text replacement failed."
                 _status.value = EditorUiStatus.Error(message)
                 onComplete(false, message)
+            } finally {
+                flattenedSource?.delete()
             }
         }
     }
