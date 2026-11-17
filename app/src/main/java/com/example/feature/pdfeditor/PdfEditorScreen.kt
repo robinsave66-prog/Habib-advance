@@ -1098,7 +1098,7 @@ fun PdfEditorScreen(
             title = { Text("Replace scanned-page text?") },
             text = {
                 Text(
-                    "This operation covers the OCR-selected area with white, then places the replacement text there. To remove the old pixels securely, every page will be flattened to a 300-DPI image. Searchable/selectable text, vector content, forms, annotations, metadata and embedded files will not be retained. This cannot be undone. Keep the original PDF backup."
+                    "This operation estimates the background around the OCR-selected text from nearby pixels, then places the replacement text there. It works best on plain paper and smooth color gradients; textured, patterned or detailed backgrounds may still show artifacts. Every page will be flattened to a 300-DPI image, so searchable/selectable text, vector content, forms, annotations, metadata and embedded files will not be retained. This cannot be undone. Keep the original PDF backup."
                 )
             },
             confirmButton = {
