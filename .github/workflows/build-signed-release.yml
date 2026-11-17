@@ -2,7 +2,7 @@ name: Build Signed Android Release
 
 on:
   push:
-    branches: [main, feature/open-source-document-engine, feature/wps-style-variable-width-pdf-edit, fix/direct-page-inline-pdf-text-edit, feature/pdfcraft-native-text-engine, fix/keep-inline-pdf-editor-focused, fix/prevent-native-edit-on-ocr-only-text, feat/ocr-scanned-text-replacement]
+    branches: [main, feature/open-source-document-engine, feature/wps-style-variable-width-pdf-edit, fix/direct-page-inline-pdf-text-edit, feature/pdfcraft-native-text-engine, fix/keep-inline-pdf-editor-focused, fix/prevent-native-edit-on-ocr-only-text, feat/ocr-scanned-text-replacement, feat/adaptive-scanned-pdf-text-replacement]
     paths:
       - 'app/**'
       - 'gradle/**'
@@ -77,7 +77,7 @@ jobs:
           test "$(stat -c%s app/src/main/assets/tessdata/eng.traineddata)" -eq 4113088
 
       - name: Run complete unit test suite (final release only)
-        if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/wps-style-variable-width-pdf-edit' || github.ref == 'refs/heads/fix/direct-page-inline-pdf-text-edit' || github.ref == 'refs/heads/feature/pdfcraft-native-text-engine' || github.ref == 'refs/heads/fix/keep-inline-pdf-editor-focused' || github.ref == 'refs/heads/fix/prevent-native-edit-on-ocr-only-text' || github.ref == 'refs/heads/feat/ocr-scanned-text-replacement' || inputs.publish_apk == true }}
+        if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/wps-style-variable-width-pdf-edit' || github.ref == 'refs/heads/fix/direct-page-inline-pdf-text-edit' || github.ref == 'refs/heads/feature/pdfcraft-native-text-engine' || github.ref == 'refs/heads/fix/keep-inline-pdf-editor-focused' || github.ref == 'refs/heads/fix/prevent-native-edit-on-ocr-only-text' || github.ref == 'refs/heads/feat/ocr-scanned-text-replacement' || github.ref == 'refs/heads/feat/adaptive-scanned-pdf-text-replacement' || inputs.publish_apk == true }}
         run: gradle --no-configuration-cache testDebugUnitTest
 
       - name: Build signed release APK for targeted feature validation
@@ -90,7 +90,7 @@ jobs:
           gradle --no-configuration-cache assembleRelease
 
       - name: Verify APK package and signature
-        if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/wps-style-variable-width-pdf-edit' || github.ref == 'refs/heads/fix/direct-page-inline-pdf-text-edit' || github.ref == 'refs/heads/feature/pdfcraft-native-text-engine' || github.ref == 'refs/heads/fix/keep-inline-pdf-editor-focused' || github.ref == 'refs/heads/fix/prevent-native-edit-on-ocr-only-text' || github.ref == 'refs/heads/feat/ocr-scanned-text-replacement' || inputs.publish_apk == true }}
+        if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/wps-style-variable-width-pdf-edit' || github.ref == 'refs/heads/fix/direct-page-inline-pdf-text-edit' || github.ref == 'refs/heads/feature/pdfcraft-native-text-engine' || github.ref == 'refs/heads/fix/keep-inline-pdf-editor-focused' || github.ref == 'refs/heads/fix/prevent-native-edit-on-ocr-only-text' || github.ref == 'refs/heads/feat/ocr-scanned-text-replacement' || github.ref == 'refs/heads/feat/adaptive-scanned-pdf-text-replacement' || inputs.publish_apk == true }}
         run: |
           APK="app/build/outputs/apk/release/app-release.apk"
           test -s "$APK"
@@ -104,13 +104,13 @@ jobs:
           keytool -genkeypair -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -dname "CN=Android Debug,O=Android,C=US" -keyalg RSA -keysize 2048 -validity 10000
 
       - name: Prepare Android instrumentation APKs before emulator startup
-        if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/open-source-document-engine' || github.ref == 'refs/heads/feature/wps-style-variable-width-pdf-edit' || github.ref == 'refs/heads/fix/direct-page-inline-pdf-text-edit' || github.ref == 'refs/heads/feature/pdfcraft-native-text-engine' || github.ref == 'refs/heads/fix/keep-inline-pdf-editor-focused' || github.ref == 'refs/heads/fix/prevent-native-edit-on-ocr-only-text' || github.ref == 'refs/heads/feat/ocr-scanned-text-replacement' || inputs.publish_apk == true }}
+        if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/open-source-document-engine' || github.ref == 'refs/heads/feature/wps-style-variable-width-pdf-edit' || github.ref == 'refs/heads/fix/direct-page-inline-pdf-text-edit' || github.ref == 'refs/heads/feature/pdfcraft-native-text-engine' || github.ref == 'refs/heads/fix/keep-inline-pdf-editor-focused' || github.ref == 'refs/heads/fix/prevent-native-edit-on-ocr-only-text' || github.ref == 'refs/heads/feat/ocr-scanned-text-replacement' || github.ref == 'refs/heads/feat/adaptive-scanned-pdf-text-replacement' || inputs.publish_apk == true }}
         run: |
           # Compile and package both APKs before the emulator consumes runner resources.
           gradle --no-configuration-cache assembleDebug assembleDebugAndroidTest
 
       - name: Run PDF validation and complete Android instrumentation suite
-        if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/open-source-document-engine' || github.ref == 'refs/heads/feature/wps-style-variable-width-pdf-edit' || github.ref == 'refs/heads/fix/direct-page-inline-pdf-text-edit' || github.ref == 'refs/heads/feature/pdfcraft-native-text-engine' || github.ref == 'refs/heads/fix/keep-inline-pdf-editor-focused' || github.ref == 'refs/heads/fix/prevent-native-edit-on-ocr-only-text' || github.ref == 'refs/heads/feat/ocr-scanned-text-replacement' || inputs.publish_apk == true }}
+        if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/open-source-document-engine' || github.ref == 'refs/heads/feature/wps-style-variable-width-pdf-edit' || github.ref == 'refs/heads/fix/direct-page-inline-pdf-text-edit' || github.ref == 'refs/heads/feature/pdfcraft-native-text-engine' || github.ref == 'refs/heads/fix/keep-inline-pdf-editor-focused' || github.ref == 'refs/heads/fix/prevent-native-edit-on-ocr-only-text' || github.ref == 'refs/heads/feat/ocr-scanned-text-replacement' || github.ref == 'refs/heads/feat/adaptive-scanned-pdf-text-replacement' || inputs.publish_apk == true }}
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 30
@@ -149,7 +149,7 @@ jobs:
           fi
 
       - name: Upload APK artifact
-        if: ${{ always() && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/wps-style-variable-width-pdf-edit' || github.ref == 'refs/heads/fix/direct-page-inline-pdf-text-edit' || github.ref == 'refs/heads/feature/pdfcraft-native-text-engine' || github.ref == 'refs/heads/fix/keep-inline-pdf-editor-focused' || github.ref == 'refs/heads/fix/prevent-native-edit-on-ocr-only-text' || github.ref == 'refs/heads/feat/ocr-scanned-text-replacement' || inputs.publish_apk == true) }}
+        if: ${{ always() && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/wps-style-variable-width-pdf-edit' || github.ref == 'refs/heads/fix/direct-page-inline-pdf-text-edit' || github.ref == 'refs/heads/feature/pdfcraft-native-text-engine' || github.ref == 'refs/heads/fix/keep-inline-pdf-editor-focused' || github.ref == 'refs/heads/fix/prevent-native-edit-on-ocr-only-text' || github.ref == 'refs/heads/feat/ocr-scanned-text-replacement' || github.ref == 'refs/heads/feat/adaptive-scanned-pdf-text-replacement' || inputs.publish_apk == true) }}
         uses: actions/upload-artifact@v4
         with:
           name: Habib_Advance_Editor_Complete
