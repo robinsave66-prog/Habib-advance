@@ -421,19 +421,20 @@ class PdfEditorViewModel(
                     require(selectedBounds.width() > 0f && selectedBounds.height() > 0f) {
                         "The OCR selection has invalid page coordinates."
                     }
-                    flattenedSource = secureRedactionEngine.redact(
+                    val flattened = secureRedactionEngine.redact(
                         sourceUri = source,
                         redactionsByPage = mapOf(page to listOf(selectedBounds)),
                         outputFileName = "Scanned_Text_Base_${System.currentTimeMillis()}.pdf",
                         fillColor = Color.WHITE
                     )
+                    flattenedSource = flattened
                     val replacementWidth = maxOf(
                         selectedBounds.width(),
                         newText.length * fontSizePt * 0.55f
                     ).coerceAtMost((_pageDimensions.value.first - selectedBounds.left).coerceAtLeast(selectedBounds.width()))
                     val replacementHeight = maxOf(selectedBounds.height(), fontSizePt * 1.5f)
                     overlayExportEngine.export(
-                        sourceUri = Uri.fromFile(flattenedSource),
+                        sourceUri = Uri.fromFile(flattened),
                         elementsByPage = mapOf(
                             page to listOf(
                                 TextElement(
