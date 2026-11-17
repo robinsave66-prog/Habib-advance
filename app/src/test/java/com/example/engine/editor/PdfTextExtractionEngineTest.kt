@@ -67,6 +67,29 @@ class PdfTextExtractionEngineTest {
         }
     }
 
+
+    @Test
+    fun mixedPageKeepsNativeWordsAndAddsNonDuplicateOcrWords() {
+        val native = DetectedPdfWord(
+            text = "Native", bounds = android.graphics.RectF(10f, 10f, 45f, 28f),
+            pageIndex = 0, isOcr = false
+        )
+        val duplicateOcr = DetectedPdfWord(
+            text = "Native", bounds = android.graphics.RectF(11f, 11f, 44f, 27f),
+            pageIndex = 0, isOcr = true
+        )
+        val scanned = DetectedPdfWord(
+            text = "Scanned", bounds = android.graphics.RectF(100f, 10f, 160f, 28f),
+            pageIndex = 0, isOcr = true
+        )
+        val merged = PdfTextExtractionEngine.mergeNativeAndOcrWords(
+            listOf(native), listOf(duplicateOcr, scanned)
+        )
+        assertEquals(2, merged.size)
+        assertTrue(merged.any { it.text == "Native" && !it.isOcr })
+        assertTrue(merged.any { it.text == "Scanned" && it.isOcr })
+    }
+
     @Test
     fun singleTapHitTestingFindsTextInsideAndNearItsBounds() {
         val word = DetectedPdfWord(
