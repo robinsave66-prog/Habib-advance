@@ -375,6 +375,12 @@ class PdfEditorViewModel(
         onComplete: (Boolean, String?) -> Unit = { _, _ -> }
     ) {
         val words = _selectedWords.value
+        if (words.any { it.isOcr }) {
+            val message = "This text was recognized from the page image by OCR; it is not stored as editable PDF text. Native text replacement is unavailable for this scanned area, and the original PDF has not been changed."
+            _status.value = EditorUiStatus.Error(message)
+            onComplete(false, message)
+            return
+        }
         if (words.isEmpty()) {
             val message = "Select existing PDF text before editing it."
             _status.value = EditorUiStatus.Error(message)

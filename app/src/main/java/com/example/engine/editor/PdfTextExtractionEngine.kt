@@ -26,7 +26,9 @@ data class DetectedPdfWord(
     val fontSizePt: Float = 14f,
     val isBold: Boolean = false,
     val isItalic: Boolean = false,
-    val textColor: Long = 0xFF000000
+    val textColor: Long = 0xFF000000,
+    /** True when this word was recognized from page pixels rather than stored PDF text. */
+    val isOcr: Boolean = false
 )
 
 data class DetectedPdfLine(
@@ -69,7 +71,8 @@ object PdfTextExtractionEngine {
                         text = word.text,
                         bounds = RectF(left, top, right, bottom),
                         pageIndex = pageIndex,
-                        fontSizePt = ((bottom - top) * 0.85f).coerceIn(1f, 200f)
+                        fontSizePt = ((bottom - top) * 0.85f).coerceIn(1f, 200f),
+                        isOcr = true
                     )
                 }
             }
