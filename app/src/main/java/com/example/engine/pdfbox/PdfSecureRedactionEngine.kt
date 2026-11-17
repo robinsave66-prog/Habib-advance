@@ -31,7 +31,7 @@ class PdfSecureRedactionEngine(private val context: Context) {
         sourceUri: Uri,
         redactionsByPage: Map<Int, List<RectF>>,
         outputFileName: String,
-        fillColor: Int = Color.BLACK
+        fillColor: Int? = Color.BLACK
     ): File = withContext(Dispatchers.IO) {
         require(redactionsByPage.isNotEmpty() && redactionsByPage.values.any { it.isNotEmpty() }) {
             "Select at least one area to redact."
@@ -72,7 +72,11 @@ class PdfSecureRedactionEngine(private val context: Context) {
                         page.render(bitmap, null, matrix, PdfRenderer.Page.RENDER_MODE_FOR_PRINT)
                         val boxes = redactionsByPage[pageIndex].orEmpty()
                         if (boxes.isNotEmpty()) {
-                            applyRedactionRectangles(bitmap, boxes, page.width.toFloat(), page.height.toFloat(), fillColor = fillColor)
+                            if (fillColor == null) {
+                                reconstructBackgroundAroundText(bitmap, boxes, page.width.toFloat(), page.height.toFloat())
+                            } else {
+                                applyRedactionRectangles(bitmap, boxes, page.width.toFloat(), page.height.toFloat(), fillColor = fillColor)
+                            }
                         }
                         appendRasterizedPage(outputDocument, bitmap, page.width.toFloat(), page.height.toFloat())
                     } finally {
@@ -100,7 +104,7 @@ class PdfSecureRedactionEngine(private val context: Context) {
         pageWidthPoints: Float,
         pageHeightPoints: Float,
         expansionPoints: Float = REDACTION_EXPANSION_POINTS,
-        fillColor: Int = Color.BLACK
+        fillColor: Int? = Color.BLACK
     ) {
         require(!bitmap.isRecycled) { "Cannot redact a recycled page image." }
         require(pageWidthPoints > 0f && pageHeightPoints > 0f) { "Page dimensions must be positive." }
@@ -119,13 +123,99 @@ class PdfSecureRedactionEngine(private val context: Context) {
             require(right > left && bottom > top) {
                 "A redaction area does not intersect the rendered page; refusing to save an unredacted result."
             }
-            // Write opaque pixels directly. This avoids canvas backend variability and guarantees
-            // the redaction pixels are baked into the bitmap before it is encoded into the PDF.
-            val row = IntArray(right - left) { fillColor }
-            for (y in top until bottom) {
-                bitmap.setPixels(row, 0, row.size, left, y, row.size, 1)
+            // Write opaque pixels directly so redaction is baked into the exported image.
+            val color = requireNotNull(fillColor) { "A fill color is required for solid redaction." }
+            val row = IntArray(right - left) { color }
+            for (y in top until bottom) bitmap.setPixels(row, 0, row.size, left, y, row.size, 1)
+        }
+    }
+
+    /**
+     * Estimates a smooth local page background from narrow strips just outside the
+     * selected text rectangle. This is useful for plain paper and gentle gradients;
+     * it is not texture-aware inpainting and must not be presented as such.
+     */
+    internal fun reconstructBackgroundAroundText(
+        bitmap: Bitmap,
+        rectanglesInPoints: List<RectF>,
+        pageWidthPoints: Float,
+        pageHeightPoints: Float,
+        expansionPoints: Float = REDACTION_EXPANSION_POINTS
+    ) {
+        require(!bitmap.isRecycled) { "Cannot reconstruct a recycled page image." }
+        require(pageWidthPoints > 0f && pageHeightPoints > 0f) { "Page dimensions must be positive." }
+        val scaleX = bitmap.width / pageWidthPoints
+        val scaleY = bitmap.height / pageHeightPoints
+        rectanglesInPoints.forEach { bounds ->
+            require(bounds.left.isFinite() && bounds.top.isFinite() &&
+                bounds.right.isFinite() && bounds.bottom.isFinite() &&
+                bounds.width() > 0f && bounds.height() > 0f) {
+                "A reconstruction area has invalid coordinates."
+            }
+            val left = kotlin.math.floor(((bounds.left - expansionPoints) * scaleX).coerceIn(0f, bitmap.width.toFloat())).toInt()
+            val top = kotlin.math.floor(((bounds.top - expansionPoints) * scaleY).coerceIn(0f, bitmap.height.toFloat())).toInt()
+            val right = kotlin.math.ceil(((bounds.right + expansionPoints) * scaleX).coerceIn(0f, bitmap.width.toFloat())).toInt()
+            val bottom = kotlin.math.ceil(((bounds.bottom + expansionPoints) * scaleY).coerceIn(0f, bitmap.height.toFloat())).toInt()
+            require(right > left && bottom > top) { "A reconstruction area does not intersect the rendered page." }
+
+            val band = 3
+            val topY = (top - band).coerceAtLeast(0)
+            val bottomY = (bottom + band - 1).coerceAtMost(bitmap.height - 1)
+            val leftX = (left - band).coerceAtLeast(0)
+            val rightX = (right + band - 1).coerceAtMost(bitmap.width - 1)
+            val width = right - left
+            val height = bottom - top
+            val topColors = IntArray(width) { x -> averageVertical(bitmap, left + x, topY, top.coerceAtMost(bitmap.height)) }
+            val bottomColors = IntArray(width) { x -> averageVertical(bitmap, left + x, bottom.coerceAtLeast(0), (bottomY + 1).coerceAtMost(bitmap.height)) }
+            val leftColors = IntArray(height) { y -> averageHorizontal(bitmap, leftX, left.coerceAtMost(bitmap.width), top + y) }
+            val rightColors = IntArray(height) { y -> averageHorizontal(bitmap, right.coerceAtLeast(0), (rightX + 1).coerceAtMost(bitmap.width), top + y) }
+
+            for (y in 0 until height) {
+                val ty = if (height <= 1) 0f else y.toFloat() / (height - 1)
+                val row = IntArray(width)
+                for (x in 0 until width) {
+                    val tx = if (width <= 1) 0f else x.toFloat() / (width - 1)
+                    val vertical = blend(topColors[x], bottomColors[x], ty)
+                    val horizontal = blend(leftColors[y], rightColors[y], tx)
+                    row[x] = blend(vertical, horizontal, 0.5f)
+                }
+                bitmap.setPixels(row, 0, width, left, top + y, width, 1)
             }
         }
+    }
+
+    private fun averageVertical(bitmap: Bitmap, x: Int, startY: Int, endY: Int): Int {
+        val start = startY.coerceIn(0, bitmap.height - 1)
+        val end = endY.coerceIn(start + 1, bitmap.height)
+        var a = 0L; var r = 0L; var g = 0L; var b = 0L
+        for (y in start until end) {
+            val c = bitmap.getPixel(x.coerceIn(0, bitmap.width - 1), y)
+            a += Color.alpha(c); r += Color.red(c); g += Color.green(c); b += Color.blue(c)
+        }
+        val n = (end - start).toLong()
+        return Color.argb((a / n).toInt(), (r / n).toInt(), (g / n).toInt(), (b / n).toInt())
+    }
+
+    private fun averageHorizontal(bitmap: Bitmap, startX: Int, endX: Int, y: Int): Int {
+        val start = startX.coerceIn(0, bitmap.width - 1)
+        val end = endX.coerceIn(start + 1, bitmap.width)
+        var a = 0L; var r = 0L; var g = 0L; var b = 0L
+        for (x in start until end) {
+            val c = bitmap.getPixel(x, y.coerceIn(0, bitmap.height - 1))
+            a += Color.alpha(c); r += Color.red(c); g += Color.green(c); b += Color.blue(c)
+        }
+        val n = (end - start).toLong()
+        return Color.argb((a / n).toInt(), (r / n).toInt(), (g / n).toInt(), (b / n).toInt())
+    }
+
+    private fun blend(first: Int, second: Int, fraction: Float): Int {
+        val t = fraction.coerceIn(0f, 1f)
+        return Color.argb(
+            (Color.alpha(first) + (Color.alpha(second) - Color.alpha(first)) * t).roundToInt(),
+            (Color.red(first) + (Color.red(second) - Color.red(first)) * t).roundToInt(),
+            (Color.green(first) + (Color.green(second) - Color.green(first)) * t).roundToInt(),
+            (Color.blue(first) + (Color.blue(second) - Color.blue(first)) * t).roundToInt()
+        )
     }
 
     internal fun appendRasterizedPage(
