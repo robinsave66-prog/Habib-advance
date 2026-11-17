@@ -2,7 +2,7 @@ name: Build Signed Android Release
 
 on:
   push:
-    branches: [main, feature/open-source-document-engine, feature/wps-style-variable-width-pdf-edit, fix/direct-page-inline-pdf-text-edit, feature/pdfcraft-native-text-engine, fix/keep-inline-pdf-editor-focused, fix/prevent-native-edit-on-ocr-only-text, feat/ocr-scanned-text-replacement' || github.ref == 'refs/heads/feat/adaptive-scanned-pdf-text-replacement]
+    branches: [main, feature/open-source-document-engine, feature/wps-style-variable-width-pdf-edit, fix/direct-page-inline-pdf-text-edit, feature/pdfcraft-native-text-engine, fix/keep-inline-pdf-editor-focused, fix/prevent-native-edit-on-ocr-only-text, feat/ocr-scanned-text-replacement, feat/adaptive-scanned-pdf-text-replacement]
     paths:
       - 'app/**'
       - 'gradle/**'
