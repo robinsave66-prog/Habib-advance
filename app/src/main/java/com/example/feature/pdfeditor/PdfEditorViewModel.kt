@@ -425,7 +425,7 @@ class PdfEditorViewModel(
                         sourceUri = source,
                         redactionsByPage = mapOf(page to listOf(selectedBounds)),
                         outputFileName = "Scanned_Text_Base_${System.currentTimeMillis()}.pdf",
-                        fillColor = Color.WHITE
+                        fillColor = null
                     )
                     flattenedSource = flattened
                     val replacementWidth = maxOf(
@@ -449,7 +449,7 @@ class PdfEditorViewModel(
                                     isBold = isBold,
                                     isItalic = isItalic,
                                     isUnderline = isUnderline,
-                                    backgroundColor = Color.WHITE.toLong(),
+                                    backgroundColor = null,
                                     textAlign = textAlign
                                 )
                             )
