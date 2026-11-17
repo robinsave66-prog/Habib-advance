@@ -55,14 +55,13 @@ object PdfTextExtractionEngine {
         require(pageWidthPt > 0 && pageHeightPt > 0) { "Page dimensions must be positive." }
 
         val nativeWords = if (sourceUri != null) extractNativePdfWords(context, sourceUri, pageIndex) else emptyList()
-        if (nativeWords.isNotEmpty()) return@withContext nativeWords
-        if (pageBitmap == null || pageBitmap.isRecycled) return@withContext emptyList()
+        if (pageBitmap == null || pageBitmap.isRecycled) return@withContext nativeWords
 
         try {
             OfflineTesseractOcrEngine.openSession(context, OcrLanguage.BENGALI_AND_ENGLISH).use { session ->
                 val scaleX = pageWidthPt.toFloat() / pageBitmap.width.toFloat()
                 val scaleY = pageHeightPt.toFloat() / pageBitmap.height.toFloat()
-                session.recognizeWords(pageBitmap).map { word ->
+                val ocrWords = session.recognizeWords(pageBitmap).map { word ->
                     val left = word.bounds.left * scaleX
                     val top = word.bounds.top * scaleY
                     val right = word.bounds.right * scaleX
@@ -75,10 +74,28 @@ object PdfTextExtractionEngine {
                         isOcr = true
                     )
                 }
+                mergeNativeAndOcrWords(nativeWords, ocrWords)
             }
         } catch (_: Exception) {
-            emptyList()
+            nativeWords
         }
+    }
+
+    /** Merge OCR detections on mixed pages while suppressing OCR duplicates of native glyphs. */
+    internal fun mergeNativeAndOcrWords(
+        nativeWords: List<DetectedPdfWord>,
+        ocrWords: List<DetectedPdfWord>
+    ): List<DetectedPdfWord> {
+        val uniqueOcr = ocrWords.filter { candidate ->
+            nativeWords.none { native ->
+                val intersection = RectF(native.bounds).apply { intersect(candidate.bounds) }
+                val overlap = if (intersection.isEmpty) 0f else
+                    (intersection.width() * intersection.height()) /
+                        (candidate.bounds.width().coerceAtLeast(0.1f) * candidate.bounds.height().coerceAtLeast(0.1f))
+                overlap >= 0.35f || native.bounds.contains(candidate.bounds.centerX(), candidate.bounds.centerY())
+            }
+        }
+        return (nativeWords + uniqueOcr).sortedWith(compareBy<DetectedPdfWord> { it.bounds.top }.thenBy { it.bounds.left })
     }
 
     private fun extractNativePdfWords(context: Context, uri: Uri, pageIndex: Int): List<DetectedPdfWord> {
