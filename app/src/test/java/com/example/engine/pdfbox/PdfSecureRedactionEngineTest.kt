@@ -3,7 +3,6 @@ package com.example.engine.pdfbox
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
-import android.graphics.Color
 import android.graphics.RectF
 import androidx.test.core.app.ApplicationProvider
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
