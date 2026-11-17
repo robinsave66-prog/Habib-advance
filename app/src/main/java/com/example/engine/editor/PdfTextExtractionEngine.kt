@@ -88,8 +88,9 @@ object PdfTextExtractionEngine {
     ): List<DetectedPdfWord> {
         val uniqueOcr = ocrWords.filter { candidate ->
             nativeWords.none { native ->
-                val intersection = RectF(native.bounds).apply { intersect(candidate.bounds) }
-                val overlap = if (intersection.isEmpty) 0f else
+                val intersection = RectF(native.bounds)
+                val hasIntersection = intersection.intersect(candidate.bounds)
+                val overlap = if (!hasIntersection) 0f else
                     (intersection.width() * intersection.height()) /
                         (candidate.bounds.width().coerceAtLeast(0.1f) * candidate.bounds.height().coerceAtLeast(0.1f))
                 overlap >= 0.35f || native.bounds.contains(candidate.bounds.centerX(), candidate.bounds.centerY())
