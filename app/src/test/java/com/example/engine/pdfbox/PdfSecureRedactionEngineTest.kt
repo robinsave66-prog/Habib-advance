@@ -3,6 +3,7 @@ package com.example.engine.pdfbox
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
+import android.graphics.Color
 import android.graphics.RectF
 import androidx.test.core.app.ApplicationProvider
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
@@ -65,6 +66,31 @@ class PdfSecureRedactionEngineTest {
             assertEquals(Color.WHITE, bitmap.getPixel(40, 40))
             assertEquals(Color.BLACK, bitmap.getPixel(10, 10))
             assertEquals(Color.BLACK, bitmap.getPixel(50, 50))
+        } finally {
+            bitmap.recycle()
+        }
+    }
+
+
+    @Test
+    fun backgroundReconstructionFollowsSmoothGradientAndLeavesOutsidePixelsUntouched() {
+        val bitmap = Bitmap.createBitmap(120, 120, Bitmap.Config.ARGB_8888)
+        try {
+            for (y in 0 until bitmap.height) {
+                val row = IntArray(bitmap.width) { x ->
+                    val value = (80 + x + y).coerceAtMost(255)
+                    Color.rgb(value, value, value)
+                }
+                bitmap.setPixels(row, 0, row.size, 0, y, row.size, 1)
+            }
+            val expected = bitmap.getPixel(60, 60)
+            engine.reconstructBackgroundAroundText(
+                bitmap, listOf(RectF(40f, 40f, 80f, 80f)), 120f, 120f, expansionPoints = 0f
+            )
+            val actual = bitmap.getPixel(60, 60)
+            assertTrue("Reconstructed smooth background should be close to original gradient",
+                kotlin.math.abs(Color.red(actual) - Color.red(expected)) <= 5)
+            assertEquals(Color.rgb(100, 100, 100), bitmap.getPixel(10, 10))
         } finally {
             bitmap.recycle()
         }
