@@ -1112,7 +1112,7 @@ fun PdfEditorScreen(
                             backgroundColor = 0xFFFFFFFF,
                             isBold = textBold,
                             isItalic = textItalic,
-                            isUnderline = isUnderline,
+                            isUnderline = textUnderline,
                             textAlign = textAlign,
                             onComplete = { success, message ->
                                 if (success) {
