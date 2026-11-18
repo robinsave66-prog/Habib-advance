@@ -754,7 +754,31 @@ fun PdfEditorScreen(
                                             if (interactionMode != EditorInteractionMode.PAGE_NAV) {
                                                 detectTapGestures(
                                                     onTap = { offset ->
-                                                        viewModel.onTapAtPoint(offset.x / pxPerPt, offset.y / pxPerPt)
+                                                        val tappedWord = viewModel.onTapAtPoint(
+                                                            offset.x / pxPerPt,
+                                                            offset.y / pxPerPt
+                                                        )
+                                                        if (tappedWord != null &&
+                                                            interactionMode in setOf(
+                                                                EditorInteractionMode.SELECT,
+                                                                EditorInteractionMode.TEXT_EDIT
+                                                            )
+                                                        ) {
+                                                            // A single tap opens the editor at the detected word.
+                                                            isEditingExistingElement = false
+                                                            editingElementId = null
+                                                            textInput = tappedWord.text
+                                                            textSizePt = tappedWord.fontSizePt
+                                                            textColor = tappedWord.textColor
+                                                            textBgColor = null
+                                                            textBold = tappedWord.isBold
+                                                            textItalic = tappedWord.isItalic
+                                                            textUnderline = false
+                                                            textAlign = "LEFT"
+                                                            inlineEditError = null
+                                                            inlineEditingText = true
+                                                            showTextDialog = false
+                                                        }
                                                     },
                                                     onDoubleTap = {
                                                         zoomScale = if (zoomScale > 1.2f) 1.0f else 2.0f
