@@ -185,6 +185,7 @@ class PdfEditorViewModel(
             EditorInteractionMode.PAGE_NAV -> {
                 _selectedElementId.value = null
                 _selectedWords.value = emptyList()
+                wordRangeSelectionAnchor = null
             }
             EditorInteractionMode.TEXT_EDIT -> {
                 _activeTool.value = ActiveEditorTool.TEXT
@@ -220,6 +221,7 @@ class PdfEditorViewModel(
         if (tool != ActiveEditorTool.SELECT) {
             _selectedElementId.value = null
             _selectedWords.value = emptyList()
+            wordRangeSelectionAnchor = null
         }
     }
 
@@ -270,6 +272,7 @@ class PdfEditorViewModel(
     }
 
     fun selectAllWordsOnCurrentPage() {
+        wordRangeSelectionAnchor = null
         val page = _currentPage.value
         val words = _detectedWords.value[page].orEmpty()
         _selectedWords.value = words
