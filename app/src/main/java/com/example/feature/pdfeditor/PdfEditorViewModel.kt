@@ -397,7 +397,15 @@ class PdfEditorViewModel(
         onComplete: (Boolean, String?) -> Unit = { _, _ -> }
     ) {
         val words = _selectedWords.value
-        val isOcrSelection = words.any { it.isOcr }
+        val containsOcrText = words.any { it.isOcr }
+        val containsNativeText = words.any { !it.isOcr }
+        if (containsOcrText && containsNativeText) {
+            val message = "Select native PDF text or scanned OCR text separately."
+            _status.value = EditorUiStatus.Error(message)
+            onComplete(false, message)
+            return
+        }
+        val isOcrSelection = containsOcrText
         if (words.isEmpty()) {
             val message = "Select existing PDF text before editing it."
             _status.value = EditorUiStatus.Error(message)
