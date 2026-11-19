@@ -78,7 +78,7 @@ jobs:
 
       - name: Run complete unit test suite (final release only)
         if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/wps-style-variable-width-pdf-edit' || github.ref == 'refs/heads/fix/direct-page-inline-pdf-text-edit' || github.ref == 'refs/heads/feature/pdfcraft-native-text-engine' || github.ref == 'refs/heads/fix/keep-inline-pdf-editor-focused' || github.ref == 'refs/heads/fix/prevent-native-edit-on-ocr-only-text' || github.ref == 'refs/heads/feat/ocr-scanned-text-replacement' || github.ref == 'refs/heads/feat/adaptive-scanned-pdf-text-replacement' || github.ref == 'refs/heads/fix/tap-to-inline-edit-pdf-text' || github.ref == 'refs/heads/feat/multiword-inline-pdf-text-selection' || inputs.publish_apk == true }}
-        run: gradle --no-configuration-cache testDebugUnitTest
+        run: gradle --no-configuration-cache --stacktrace --info testDebugUnitTest
 
       - name: Build signed release APK for targeted feature validation
         env:
