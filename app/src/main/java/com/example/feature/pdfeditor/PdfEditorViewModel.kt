@@ -220,7 +220,7 @@ class PdfEditorViewModel(
 
     // --- PDF Text Hit-Testing, Selection & Contextual Operations ---
 
-    fun onTapAtPoint(touchPtX: Float, touchPtY: Float) {
+    fun onTapAtPoint(touchPtX: Float, touchPtY: Float): DetectedPdfWord? {
         val page = _currentPage.value
         val words = _detectedWords.value[page].orEmpty()
         val hitWord = PdfTextExtractionEngine.findWordAt(touchPtX, touchPtY, words)
@@ -231,6 +231,7 @@ class PdfEditorViewModel(
             _selectedWords.value = emptyList()
             _selectedElementId.value = null
         }
+        return hitWord
     }
 
     fun onLongPressAtPoint(touchPtX: Float, touchPtY: Float) {
