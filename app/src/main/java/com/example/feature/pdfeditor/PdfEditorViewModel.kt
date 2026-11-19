@@ -100,6 +100,8 @@ class PdfEditorViewModel(
 
     private val _selectedWords = MutableStateFlow<List<DetectedPdfWord>>(emptyList())
     val selectedWords: StateFlow<List<DetectedPdfWord>> = _selectedWords.asStateFlow()
+    // A long-press establishes the start of a word range; the next tap completes it.
+    private var wordRangeSelectionAnchor: DetectedPdfWord? = null
 
     // Undo / Redo history stacks
     private val undoStack = Stack<Map<Int, List<EditorElement>>>()
@@ -122,6 +124,8 @@ class PdfEditorViewModel(
 
     fun loadDocument(uri: Uri, documentName: String? = null) {
         sourceDocUri = uri
+        wordRangeSelectionAnchor = null
+        _selectedWords.value = emptyList()
         _status.value = EditorUiStatus.Loading("Loading PDF for editing...")
 
         viewModelScope.launch {
@@ -171,6 +175,7 @@ class PdfEditorViewModel(
             _pageDimensions.value = dims
             _selectedElementId.value = null
             _selectedWords.value = emptyList()
+            wordRangeSelectionAnchor = null
         }
     }
 
@@ -225,9 +230,17 @@ class PdfEditorViewModel(
         val words = _detectedWords.value[page].orEmpty()
         val hitWord = PdfTextExtractionEngine.findWordAt(touchPtX, touchPtY, words)
         if (hitWord != null) {
-            _selectedWords.value = listOf(hitWord)
+            val anchor = wordRangeSelectionAnchor
+            if (anchor != null && anchor.pageIndex == page) {
+                // Complete a long-press + tap range selection in document reading order.
+                _selectedWords.value = PdfTextExtractionEngine.getWordsInRange(anchor, hitWord, words)
+                wordRangeSelectionAnchor = null
+            } else {
+                _selectedWords.value = listOf(hitWord)
+            }
             _selectedElementId.value = null // Deselect overlay elements
         } else {
+            wordRangeSelectionAnchor = null
             _selectedWords.value = emptyList()
             _selectedElementId.value = null
         }
@@ -235,7 +248,13 @@ class PdfEditorViewModel(
     }
 
     fun onLongPressAtPoint(touchPtX: Float, touchPtY: Float) {
-        onTapAtPoint(touchPtX, touchPtY)
+        val page = _currentPage.value
+        val hitWord = PdfTextExtractionEngine.findWordAt(
+            touchPtX, touchPtY, _detectedWords.value[page].orEmpty()
+        )
+        wordRangeSelectionAnchor = hitWord
+        _selectedWords.value = hitWord?.let(::listOf).orEmpty()
+        _selectedElementId.value = null
     }
 
     fun expandSelectionToWord(targetWord: DetectedPdfWord) {
@@ -258,6 +277,7 @@ class PdfEditorViewModel(
     }
 
     fun clearWordSelection() {
+        wordRangeSelectionAnchor = null
         _selectedWords.value = emptyList()
     }
 
