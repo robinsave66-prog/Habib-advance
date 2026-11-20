@@ -14,7 +14,9 @@ import com.tom_roush.pdfbox.pdmodel.graphics.form.PDFormXObject
 import com.tom_roush.pdfbox.pdmodel.common.PDRectangle
 import com.tom_roush.pdfbox.pdmodel.font.PDType1Font
 import com.tom_roush.pdfbox.text.PDFTextStripper
+import com.tom_roush.pdfbox.text.TextPosition
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -85,6 +87,84 @@ class PdfCraftNativeTextEditEngineInstrumentedTest {
             assertTrue(extracted.contains("Form paragraph updated"))
             assertFalse(extracted.contains("Form paragraph original"))
         }
+    }
+
+
+    @Test
+    fun preservesSurroundingTextFontSizeAndBaselineAfterParagraphReplacement() = runBlocking {
+        val source = File(context.cacheDir, "pdfcraft-style-source-${System.nanoTime()}.pdf")
+        PDDocument().use { document ->
+            val page = PDPage(PDRectangle(420f, 600f))
+            document.addPage(page)
+            PDPageContentStream(document, page).use { stream ->
+                stream.beginText()
+                stream.setFont(PDType1Font.HELVETICA_BOLD, 14f)
+                stream.newLineAtOffset(52f, 520f)
+                stream.showText("Start original phrase End")
+                stream.endText()
+            }
+            document.save(source)
+        }
+
+        val before = readGlyphs(source)
+        val output = engine.replaceText(
+            sourceUri = Uri.fromFile(source),
+            pageIndex = 0,
+            oldText = "original phrase",
+            newText = "a much longer replacement phrase",
+            outputFileName = "pdfcraft-style-preservation-test.pdf"
+        )
+        val after = readGlyphs(output)
+
+        // The unchanged prefix must retain its exact font metrics and placement.
+        val beforeStart = before.first { it.unicode == "S" }
+        val afterStart = after.first { it.unicode == "S" }
+        assertEquals(beforeStart.fontName, afterStart.fontName)
+        assertEquals(beforeStart.fontSize, afterStart.fontSize, 0.01f)
+        assertEquals(beforeStart.x, afterStart.x, 0.1f)
+        assertEquals(beforeStart.y, afterStart.y, 0.1f)
+
+        // The suffix may move horizontally when the paragraph reflows, but must retain
+        // its original font metrics and baseline instead of being rendered as a new style.
+        val beforeEnd = before.first { it.unicode == "E" }
+        val afterEnd = after.first { it.unicode == "E" }
+        assertEquals(beforeEnd.fontName, afterEnd.fontName)
+        assertEquals(beforeEnd.fontSize, afterEnd.fontSize, 0.01f)
+        assertEquals(beforeEnd.y, afterEnd.y, 0.1f)
+
+        PDDocument.load(output).use { edited ->
+            val text = PDFTextStripper().getText(edited)
+            assertTrue(text.contains("Start a much longer replacement phrase End"))
+            assertFalse(text.contains("Start original phrase End"))
+        }
+    }
+
+    private data class GlyphMetrics(
+        val unicode: String,
+        val fontName: String,
+        val fontSize: Float,
+        val x: Float,
+        val y: Float
+    )
+
+    private fun readGlyphs(file: File): List<GlyphMetrics> {
+        val glyphs = mutableListOf<GlyphMetrics>()
+        PDDocument.load(file).use { document ->
+            val stripper = object : PDFTextStripper() {
+                override fun processTextPosition(text: TextPosition) {
+                    glyphs += GlyphMetrics(
+                        unicode = text.unicode,
+                        fontName = text.font.name,
+                        fontSize = text.fontSizeInPt,
+                        x = text.xDirAdj,
+                        y = text.yDirAdj
+                    )
+                    super.processTextPosition(text)
+                }
+            }
+            stripper.getText(document)
+        }
+        return glyphs
     }
 
     private fun createPdf(text: String): File {
