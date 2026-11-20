@@ -104,6 +104,29 @@ class PdfTextExtractionEngineTest {
     }
 
     @Test
+    fun rangeSelectionReturnsEveryWordBetweenEndpointsInReadingOrder() {
+        val first = DetectedPdfWord(
+            text = "Edit", bounds = android.graphics.RectF(10f, 10f, 35f, 25f), pageIndex = 0
+        )
+        val middle = DetectedPdfWord(
+            text = "this", bounds = android.graphics.RectF(40f, 10f, 65f, 25f), pageIndex = 0
+        )
+        val last = DetectedPdfWord(
+            text = "sentence", bounds = android.graphics.RectF(70f, 10f, 125f, 25f), pageIndex = 0
+        )
+        val words = listOf(last, first, middle)
+
+        assertEquals(
+            listOf("Edit", "this", "sentence"),
+            PdfTextExtractionEngine.getWordsInRange(first, last, words).map { it.text }
+        )
+        assertEquals(
+            listOf("Edit", "this", "sentence"),
+            PdfTextExtractionEngine.getWordsInRange(last, first, words).map { it.text }
+        )
+    }
+
+    @Test
     fun returnsNoFabricatedWordsForBlankPdfPage() {
         runBlocking {
             val blank = File(context.cacheDir, "blank-text-extraction-test.pdf")

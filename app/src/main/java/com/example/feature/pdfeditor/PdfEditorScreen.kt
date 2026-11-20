@@ -767,12 +767,14 @@ fun PdfEditorScreen(
                                                             // A single tap opens the editor at the detected word.
                                                             isEditingExistingElement = false
                                                             editingElementId = null
-                                                            textInput = tappedWord.text
-                                                            textSizePt = tappedWord.fontSizePt
-                                                            textColor = tappedWord.textColor
+                                                            val wordsForInlineEdit = viewModel.selectedWords.value.ifEmpty { listOf(tappedWord) }
+                                                            textInput = wordsForInlineEdit.joinToString(" ") { it.text }
+                                                            val firstSelectedWord = wordsForInlineEdit.first()
+                                                            textSizePt = firstSelectedWord.fontSizePt
+                                                            textColor = firstSelectedWord.textColor
                                                             textBgColor = null
-                                                            textBold = tappedWord.isBold
-                                                            textItalic = tappedWord.isItalic
+                                                            textBold = firstSelectedWord.isBold
+                                                            textItalic = firstSelectedWord.isItalic
                                                             textUnderline = false
                                                             textAlign = "LEFT"
                                                             inlineEditError = null

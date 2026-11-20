@@ -100,6 +100,8 @@ class PdfEditorViewModel(
 
     private val _selectedWords = MutableStateFlow<List<DetectedPdfWord>>(emptyList())
     val selectedWords: StateFlow<List<DetectedPdfWord>> = _selectedWords.asStateFlow()
+    // A long-press establishes the start of a word range; the next tap completes it.
+    private var wordRangeSelectionAnchor: DetectedPdfWord? = null
 
     // Undo / Redo history stacks
     private val undoStack = Stack<Map<Int, List<EditorElement>>>()
@@ -122,6 +124,8 @@ class PdfEditorViewModel(
 
     fun loadDocument(uri: Uri, documentName: String? = null) {
         sourceDocUri = uri
+        wordRangeSelectionAnchor = null
+        _selectedWords.value = emptyList()
         _status.value = EditorUiStatus.Loading("Loading PDF for editing...")
 
         viewModelScope.launch {
@@ -171,6 +175,7 @@ class PdfEditorViewModel(
             _pageDimensions.value = dims
             _selectedElementId.value = null
             _selectedWords.value = emptyList()
+            wordRangeSelectionAnchor = null
         }
     }
 
@@ -180,6 +185,7 @@ class PdfEditorViewModel(
             EditorInteractionMode.PAGE_NAV -> {
                 _selectedElementId.value = null
                 _selectedWords.value = emptyList()
+                wordRangeSelectionAnchor = null
             }
             EditorInteractionMode.TEXT_EDIT -> {
                 _activeTool.value = ActiveEditorTool.TEXT
@@ -215,6 +221,7 @@ class PdfEditorViewModel(
         if (tool != ActiveEditorTool.SELECT) {
             _selectedElementId.value = null
             _selectedWords.value = emptyList()
+            wordRangeSelectionAnchor = null
         }
     }
 
@@ -225,9 +232,17 @@ class PdfEditorViewModel(
         val words = _detectedWords.value[page].orEmpty()
         val hitWord = PdfTextExtractionEngine.findWordAt(touchPtX, touchPtY, words)
         if (hitWord != null) {
-            _selectedWords.value = listOf(hitWord)
+            val anchor = wordRangeSelectionAnchor
+            if (anchor != null && anchor.pageIndex == page) {
+                // Complete a long-press + tap range selection in document reading order.
+                _selectedWords.value = PdfTextExtractionEngine.getWordsInRange(anchor, hitWord, words)
+                wordRangeSelectionAnchor = null
+            } else {
+                _selectedWords.value = listOf(hitWord)
+            }
             _selectedElementId.value = null // Deselect overlay elements
         } else {
+            wordRangeSelectionAnchor = null
             _selectedWords.value = emptyList()
             _selectedElementId.value = null
         }
@@ -235,7 +250,13 @@ class PdfEditorViewModel(
     }
 
     fun onLongPressAtPoint(touchPtX: Float, touchPtY: Float) {
-        onTapAtPoint(touchPtX, touchPtY)
+        val page = _currentPage.value
+        val hitWord = PdfTextExtractionEngine.findWordAt(
+            touchPtX, touchPtY, _detectedWords.value[page].orEmpty()
+        )
+        wordRangeSelectionAnchor = hitWord
+        _selectedWords.value = hitWord?.let(::listOf).orEmpty()
+        _selectedElementId.value = null
     }
 
     fun expandSelectionToWord(targetWord: DetectedPdfWord) {
@@ -251,6 +272,7 @@ class PdfEditorViewModel(
     }
 
     fun selectAllWordsOnCurrentPage() {
+        wordRangeSelectionAnchor = null
         val page = _currentPage.value
         val words = _detectedWords.value[page].orEmpty()
         _selectedWords.value = words
@@ -258,6 +280,7 @@ class PdfEditorViewModel(
     }
 
     fun clearWordSelection() {
+        wordRangeSelectionAnchor = null
         _selectedWords.value = emptyList()
     }
 
@@ -377,7 +400,15 @@ class PdfEditorViewModel(
         onComplete: (Boolean, String?) -> Unit = { _, _ -> }
     ) {
         val words = _selectedWords.value
-        val isOcrSelection = words.any { it.isOcr }
+        val containsOcrText = words.any { it.isOcr }
+        val containsNativeText = words.any { !it.isOcr }
+        if (containsOcrText && containsNativeText) {
+            val message = "Select native PDF text or scanned OCR text separately."
+            _status.value = EditorUiStatus.Error(message)
+            onComplete(false, message)
+            return
+        }
+        val isOcrSelection = containsOcrText
         if (words.isEmpty()) {
             val message = "Select existing PDF text before editing it."
             _status.value = EditorUiStatus.Error(message)
