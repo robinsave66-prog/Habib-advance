@@ -152,6 +152,12 @@ android {
   }
 }
 
+// Robolectric's default repo1.maven.org endpoint intermittently returns 404 for
+// android-all-instrumented metadata. Use Maven Central's canonical endpoint.
+tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
+  systemProperty("robolectric.dependency.repo.url", "https://repo.maven.apache.org/maven2")
+}
+
 // Configure the Secrets Gradle Plugin to use .env and .env.example files
 // to match the convention used in Web projects.
 secrets {
