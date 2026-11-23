@@ -124,6 +124,11 @@ class PdfCraftNativeTextEditEngineInstrumentedTest {
         assertEquals(beforeStart.x, afterStart.x, 0.1f)
         assertEquals(beforeStart.y, afterStart.y, 0.1f)
 
+        // The inserted text itself must inherit the selected paragraph's original style.
+        val replacementStart = after.first { it.unicode == "a" && it.x > beforeStart.x }
+        assertEquals(beforeStart.fontName, replacementStart.fontName)
+        assertEquals(beforeStart.fontSize, replacementStart.fontSize, 0.01f)
+
         // The suffix may move horizontally when the paragraph reflows, but must retain
         // its original font metrics and baseline instead of being rendered as a new style.
         val beforeEnd = before.first { it.unicode == "E" }
