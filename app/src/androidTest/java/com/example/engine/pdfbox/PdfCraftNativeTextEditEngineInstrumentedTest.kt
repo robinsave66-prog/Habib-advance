@@ -149,6 +149,39 @@ class PdfCraftNativeTextEditEngineInstrumentedTest {
     }
 
     @Test
+    fun preservesRegularFontStyleOnInsertedReplacementText() = runBlocking {
+        val source = File(context.cacheDir, "pdfcraft-regular-style-source-${System.nanoTime()}.pdf")
+        PDDocument().use { document ->
+            val page = PDPage(PDRectangle(420f, 600f))
+            document.addPage(page)
+            PDPageContentStream(document, page).use { stream ->
+                stream.beginText()
+                stream.setFont(PDType1Font.HELVETICA, 14f)
+                stream.newLineAtOffset(52f, 520f)
+                stream.showText("Start original phrase End")
+                stream.endText()
+            }
+            document.save(source)
+        }
+
+        val before = readGlyphs(source)
+        val output = engine.replaceText(
+            sourceUri = Uri.fromFile(source),
+            pageIndex = 0,
+            oldText = "original phrase",
+            newText = "a longer regular replacement",
+            outputFileName = "pdfcraft-regular-font-preservation-test.pdf"
+        )
+        val after = readGlyphs(output)
+
+        val originalStart = before.first { it.unicode == "S" }
+        val replacementStart = after.first { it.unicode == "a" && it.x > originalStart.x }
+        assertEquals("Original regular font must be retained", originalStart.fontName, replacementStart.fontName)
+        assertEquals("Original regular font size must be retained", originalStart.fontSize, replacementStart.fontSize, 0.01f)
+        assertTrue("Replacement must not unexpectedly become bold", !replacementStart.fontName.contains("Bold", ignoreCase = true))
+    }
+
+    @Test
     fun preservesOriginalTextColorAfterParagraphReplacement() = runBlocking {
         val source = File(context.cacheDir, "pdfcraft-color-source-${System.nanoTime()}.pdf")
         PDDocument().use { document ->
