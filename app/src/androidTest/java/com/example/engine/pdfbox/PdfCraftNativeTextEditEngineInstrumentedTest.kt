@@ -1,7 +1,10 @@
 package com.example.engine.pdfbox
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.pdf.PdfRenderer
 import android.net.Uri
+import android.os.ParcelFileDescriptor
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
@@ -98,6 +101,7 @@ class PdfCraftNativeTextEditEngineInstrumentedTest {
             document.addPage(page)
             PDPageContentStream(document, page).use { stream ->
                 stream.beginText()
+                stream.setNonStrokingColor(255, 0, 0)
                 stream.setFont(PDType1Font.HELVETICA_BOLD, 14f)
                 stream.newLineAtOffset(52f, 520f)
                 stream.showText("Start original phrase End")
@@ -141,6 +145,69 @@ class PdfCraftNativeTextEditEngineInstrumentedTest {
             val text = PDFTextStripper().getText(edited)
             assertTrue(text.contains("Start a much longer replacement phrase End"))
             assertFalse(text.contains("Start original phrase End"))
+        }
+    }
+
+    @Test
+    fun preservesOriginalTextColorAfterParagraphReplacement() = runBlocking {
+        val source = File(context.cacheDir, "pdfcraft-color-source-${System.nanoTime()}.pdf")
+        PDDocument().use { document ->
+            val page = PDPage(PDRectangle(420f, 600f))
+            document.addPage(page)
+            PDPageContentStream(document, page).use { stream ->
+                stream.beginText()
+                stream.setNonStrokingColor(255, 0, 0)
+                stream.setFont(PDType1Font.HELVETICA_BOLD, 14f)
+                stream.newLineAtOffset(52f, 520f)
+                stream.showText("Start original phrase End")
+                stream.endText()
+            }
+            document.save(source)
+        }
+
+        val sourceRedPixels = countRedTextPixels(source)
+        val output = engine.replaceText(
+            sourceUri = Uri.fromFile(source),
+            pageIndex = 0,
+            oldText = "original phrase",
+            newText = "a much longer replacement phrase",
+            outputFileName = "pdfcraft-color-preservation-test.pdf"
+        )
+        val outputRedPixels = countRedTextPixels(output)
+
+        assertTrue("Source fixture must render red text", sourceRedPixels > 0)
+        assertTrue(
+            "Replacement paragraph lost its original red text color",
+            outputRedPixels > sourceRedPixels
+        )
+    }
+
+    private fun countRedTextPixels(file: File): Int {
+        val descriptor = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+        descriptor.use { pfd ->
+            PdfRenderer(pfd).use { renderer ->
+                renderer.openPage(0).use { page ->
+                    val bitmap = Bitmap.createBitmap(page.width * 2, page.height * 2, Bitmap.Config.ARGB_8888)
+                    try {
+                        page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                        var count = 0
+                        for (y in 0 until bitmap.height) {
+                            for (x in 0 until bitmap.width) {
+                                val pixel = bitmap.getPixel(x, y)
+                                val red = android.graphics.Color.red(pixel)
+                                val green = android.graphics.Color.green(pixel)
+                                val blue = android.graphics.Color.blue(pixel)
+                                if (red > 100 && red > green * 1.4f && red > blue * 1.4f) {
+                                    count++
+                                }
+                            }
+                        }
+                        return count
+                    } finally {
+                        bitmap.recycle()
+                    }
+                }
+            }
         }
     }
 
