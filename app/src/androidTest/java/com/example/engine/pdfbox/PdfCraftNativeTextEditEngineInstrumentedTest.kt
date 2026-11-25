@@ -182,6 +182,40 @@ class PdfCraftNativeTextEditEngineInstrumentedTest {
     }
 
     @Test
+    fun preservesItalicFontStyleOnInsertedReplacementText() = runBlocking {
+        val source = File(context.cacheDir, "pdfcraft-italic-style-source-${System.nanoTime()}.pdf")
+        PDDocument().use { document ->
+            val page = PDPage(PDRectangle(420f, 600f))
+            document.addPage(page)
+            PDPageContentStream(document, page).use { stream ->
+                stream.beginText()
+                stream.setFont(PDType1Font.HELVETICA_OBLIQUE, 14f)
+                stream.newLineAtOffset(52f, 520f)
+                stream.showText("Start original phrase End")
+                stream.endText()
+            }
+            document.save(source)
+        }
+
+        val before = readGlyphs(source)
+        val output = engine.replaceText(
+            sourceUri = Uri.fromFile(source),
+            pageIndex = 0,
+            oldText = "original phrase",
+            newText = "a longer italic replacement",
+            outputFileName = "pdfcraft-italic-font-preservation-test.pdf"
+        )
+        val after = readGlyphs(output)
+
+        val originalStart = before.first { it.unicode == "S" }
+        val replacementStart = after.first { it.unicode == "a" && it.x > originalStart.x }
+        assertEquals("Original italic font must be retained", originalStart.fontName, replacementStart.fontName)
+        assertEquals("Original italic font size must be retained", originalStart.fontSize, replacementStart.fontSize, 0.01f)
+        assertTrue("Fixture must use an italic/oblique font", originalStart.fontName.contains("Oblique", ignoreCase = true))
+        assertEquals("Replacement must retain the original italic font", originalStart.fontName, replacementStart.fontName)
+    }
+
+    @Test
     fun preservesOriginalTextColorAfterParagraphReplacement() = runBlocking {
         val source = File(context.cacheDir, "pdfcraft-color-source-${System.nanoTime()}.pdf")
         PDDocument().use { document ->
