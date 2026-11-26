@@ -210,6 +210,11 @@ class PdfCraftNativeTextEditEngineInstrumentedTest {
             outputFileName = "pdfcraft-mixed-font-preservation-test.pdf"
         )
         val after = readGlyphs(output)
+        PDDocument.load(output).use { edited ->
+            val extracted = PDFTextStripper().getText(edited)
+            assertTrue(extracted.contains("Start a longer replacement phrase End"))
+            assertFalse(extracted.contains("Start original phrase End"))
+        }
 
         val originalPrefix = before.first { it.unicode == "S" }
         val originalTarget = before.first { it.unicode == "o" }
