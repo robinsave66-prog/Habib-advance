@@ -22,6 +22,7 @@ private object PdfCraftBuildConfig {
 abstract class PreparePdfCraftSource : DefaultTask() {
   @get:Inject abstract val execOperations: ExecOperations
   @get:Input abstract val revision: Property<String>
+  @get:InputFile @get:PathSensitive(PathSensitivity.NONE) abstract val sourcePatch: RegularFileProperty
   @get:OutputDirectory abstract val outputDir: DirectoryProperty
 
   @TaskAction fun checkout() {
@@ -39,6 +40,10 @@ abstract class PreparePdfCraftSource : DefaultTask() {
     execOperations.exec {
       workingDir(dir)
       commandLine("git", "checkout", "--detach", revision.get())
+    }
+    execOperations.exec {
+      workingDir(dir)
+      commandLine("git", "apply", sourcePatch.get().asFile.absolutePath)
     }
   }
 }
@@ -245,6 +250,7 @@ dependencies {
 
 val pdfCraftSource = tasks.register<PreparePdfCraftSource>("preparePdfCraftSource") {
   revision.set(PdfCraftBuildConfig.REVISION)
+  sourcePatch.set(layout.projectDirectory.file("src/main/pdfcraft/patches/expose-text-line-style.patch"))
   outputDir.set(layout.buildDirectory.dir("pdfcraft-source"))
   outputs.upToDateWhen { false }
 }
