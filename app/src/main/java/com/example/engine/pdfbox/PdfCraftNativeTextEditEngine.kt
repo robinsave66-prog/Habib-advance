@@ -78,7 +78,8 @@ class PdfCraftNativeTextEditEngine(private val context: Context) {
                     candidates += ParagraphMatch(
                         number = paragraph.optInt("paragraph", index + 1),
                         originalText = paragraphText,
-                        match = matches.singleOrNull()
+                        match = matches.singleOrNull(),
+                        paragraph = paragraph
                     )
                 }
             }
@@ -92,10 +93,21 @@ class PdfCraftNativeTextEditEngine(private val context: Context) {
                 }
             }
             val target = candidates.single()
-            val replacementParagraph = target.originalText.replaceRange(target.match!!.range, newText)
+            val selectedRange = target.match!!.range
+            val replacementParagraph = target.originalText.replaceRange(selectedRange, newText)
+            val ranges = selectedRunStyleRanges(
+                session = session,
+                documentId = documentId,
+                pageNumber = pageNumber,
+                paragraph = target.paragraph,
+                editorText = target.originalText,
+                selectedStart = selectedRange.first,
+                selectedEndExclusive = selectedRange.last + 1,
+                replacementText = newText
+            )
 
-            // The layout preview uses the same paragraph rewrite path as Save. The engine may
-            // reflow the paragraph; the page is not covered with an overlay.
+            // Preview and Apply receive the same explicit style range. This matters when the
+            // selected run starts after a space owned by a differently styled preceding run.
             execute(
                 session,
                 "text_edit_layout",
@@ -104,6 +116,7 @@ class PdfCraftNativeTextEditEngine(private val context: Context) {
                     .put("page", pageNumber)
                     .put("paragraph", target.number)
                     .put("text", replacementParagraph)
+                    .put("ranges", ranges)
             )
 
             execute(
@@ -114,6 +127,7 @@ class PdfCraftNativeTextEditEngine(private val context: Context) {
                     .put("page", pageNumber)
                     .put("paragraph", target.number)
                     .put("text", replacementParagraph)
+                    .put("ranges", ranges)
             )
 
             execute(
@@ -157,6 +171,68 @@ class PdfCraftNativeTextEditEngine(private val context: Context) {
         }
     }
 
+    /**
+     * PdfCraft preserves unchanged source runs automatically. A changed run normally inherits
+     * the character immediately before the edit; when a selection begins after a space in another
+     * style, that default is wrong. Add an explicit range for the replacement when the entire
+     * selection belongs to one supported standard-font run.
+     */
+    private fun selectedRunStyleRanges(
+        session: MobileSession,
+        documentId: Long,
+        pageNumber: Int,
+        paragraph: JSONObject,
+        editorText: String,
+        selectedStart: Int,
+        selectedEndExclusive: Int,
+        replacementText: String
+    ): JSONArray {
+        val paragraphLines = paragraph.optJSONArray("lines") ?: return JSONArray()
+        val listedLines = execute(
+            session,
+            "text_lines",
+            JSONObject().put("doc", documentId).put("page", pageNumber)
+        ).optJSONArray("lines") ?: return JSONArray()
+
+        var cursor = 0
+        var selectedLine: JSONObject? = null
+        for (index in 0 until paragraphLines.length()) {
+            val lineNumber = paragraphLines.optInt(index, 0)
+            val line = listedLines.optJSONObject(lineNumber - 1) ?: continue
+            val lineText = line.optString("text")
+            if (lineText.isEmpty()) continue
+            val start = editorText.indexOf(lineText, cursor)
+            if (start < 0) continue
+            val end = start + lineText.length
+            if (selectedStart >= start && selectedEndExclusive <= end) {
+                selectedLine = line
+                break
+            }
+            cursor = end
+        }
+
+        val selected = selectedLine ?: return JSONArray()
+        val font = selected.optString("font").lowercase().takeIf { it.isNotBlank() } ?: return JSONArray()
+        val family = when {
+            font.contains("helvetica") -> "helvetica"
+            font.contains("times") -> "times"
+            font.contains("courier") -> "courier"
+            else -> return JSONArray()
+        }
+        val bold = selected.optBoolean("bold")
+        val italic = selected.optBoolean("italic")
+        val startByte = editorText.substring(0, selectedStart).toByteArray(Charsets.UTF_8).size
+        val endByte = startByte + replacementText.toByteArray(Charsets.UTF_8).size
+        if (startByte >= endByte) return JSONArray()
+
+        val range = JSONObject()
+            .put("range", JSONArray().put(startByte).put(endByte))
+            .put("font", family)
+            .put("bold", bold)
+            .put("italic", italic)
+        return JSONArray().put(range)
+    }
+
     private fun execute(session: MobileSession, tool: String, args: JSONObject): JSONObject {
         val raw = session.execute(tool, args.toString())
         return JSONObject(raw)
@@ -183,7 +259,8 @@ class PdfCraftNativeTextEditEngine(private val context: Context) {
     private data class ParagraphMatch(
         val number: Int,
         val originalText: String,
-        val match: MatchResult?
+        val match: MatchResult?,
+        val paragraph: JSONObject
     )
 }
 

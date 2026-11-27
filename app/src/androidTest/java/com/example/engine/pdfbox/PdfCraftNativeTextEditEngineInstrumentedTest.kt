@@ -182,6 +182,55 @@ class PdfCraftNativeTextEditEngineInstrumentedTest {
     }
 
     @Test
+    fun preservesSelectedRunStyleInsideMixedFontParagraph() = runBlocking {
+        val source = File(context.cacheDir, "pdfcraft-mixed-font-source-${System.nanoTime()}.pdf")
+        PDDocument().use { document ->
+            val page = PDPage(PDRectangle(520f, 600f))
+            document.addPage(page)
+            PDPageContentStream(document, page).use { stream ->
+                stream.beginText()
+                stream.newLineAtOffset(52f, 520f)
+                stream.setFont(PDType1Font.HELVETICA, 14f)
+                stream.showText("Start ")
+                stream.setFont(PDType1Font.HELVETICA_BOLD, 14f)
+                stream.showText("original phrase")
+                stream.setFont(PDType1Font.HELVETICA_OBLIQUE, 14f)
+                stream.showText(" End")
+                stream.endText()
+            }
+            document.save(source)
+        }
+
+        val before = readGlyphs(source)
+        val output = engine.replaceText(
+            sourceUri = Uri.fromFile(source),
+            pageIndex = 0,
+            oldText = "original phrase",
+            newText = "a longer replacement phrase",
+            outputFileName = "pdfcraft-mixed-font-preservation-test.pdf"
+        )
+        val after = readGlyphs(output)
+        PDDocument.load(output).use { edited ->
+            val extracted = PDFTextStripper().getText(edited)
+            assertTrue(extracted.contains("Start a longer replacement phrase End"))
+            assertFalse(extracted.contains("Start original phrase End"))
+        }
+
+        val originalPrefix = before.first { it.unicode == "S" }
+        val originalTarget = before.first { it.unicode == "o" }
+        val originalSuffix = before.first { it.unicode == "E" }
+        val savedPrefix = after.first { it.unicode == "S" }
+        val inserted = after.first { it.unicode == "a" && it.x > savedPrefix.x }
+        val savedSuffix = after.first { it.unicode == "E" }
+
+        assertEquals("Prefix must retain regular font", originalPrefix.fontName, savedPrefix.fontName)
+        assertEquals("Replacement must inherit the selected bold run", originalTarget.fontName, inserted.fontName)
+        assertEquals("Suffix must retain italic font", originalSuffix.fontName, savedSuffix.fontName)
+        assertEquals(originalTarget.fontSize, inserted.fontSize, 0.01f)
+        assertEquals(originalSuffix.fontSize, savedSuffix.fontSize, 0.01f)
+    }
+
+    @Test
     fun preservesItalicFontStyleOnInsertedReplacementText() = runBlocking {
         val source = File(context.cacheDir, "pdfcraft-italic-style-source-${System.nanoTime()}.pdf")
         PDDocument().use { document ->
