@@ -1,0 +1,11 @@
+diff --git a/crates/automation/src/dispatch.rs b/crates/automation/src/dispatch.rs
+index 0000000..0000000 100644
+--- a/crates/automation/src/dispatch.rs
++++ b/crates/automation/src/dispatch.rs
+@@ -351,6 +351,8 @@
+                             "rect": [r(u[0].min(v[0])), r(u[1].min(v[1])), r(u[0].max(v[0])), r(u[1].max(v[1]))],
+                             "font": l.base_font,
++                            "bold": l.bold,
++                            "italic": l.italic,
+                             "size": (l.size * 100.0).round() / 100.0,
+                         })
