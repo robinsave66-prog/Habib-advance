@@ -195,7 +195,7 @@ class PdfCraftNativeTextEditEngine(private val context: Context) {
         ).optJSONArray("lines") ?: return JSONArray()
 
         var cursor = 0
-        var selectedFont: String? = null
+        var selectedLine: JSONObject? = null
         for (index in 0 until paragraphLines.length()) {
             val lineNumber = paragraphLines.optInt(index, 0)
             val line = listedLines.optJSONObject(lineNumber - 1) ?: continue
@@ -205,21 +205,22 @@ class PdfCraftNativeTextEditEngine(private val context: Context) {
             if (start < 0) continue
             val end = start + lineText.length
             if (selectedStart >= start && selectedEndExclusive <= end) {
-                selectedFont = line.optString("font").takeIf { it.isNotBlank() }
+                selectedLine = line
                 break
             }
             cursor = end
         }
 
-        val font = selectedFont?.lowercase() ?: return JSONArray()
+        val selected = selectedLine ?: return JSONArray()
+        val font = selected.optString("font").lowercase().takeIf { it.isNotBlank() } ?: return JSONArray()
         val family = when {
             font.contains("helvetica") -> "helvetica"
             font.contains("times") -> "times"
             font.contains("courier") -> "courier"
             else -> return JSONArray()
         }
-        val bold = font.contains("bold")
-        val italic = font.contains("oblique") || font.contains("italic")
+        val bold = selected.optBoolean("bold")
+        val italic = selected.optBoolean("italic")
         val startByte = editorText.substring(0, selectedStart).toByteArray(Charsets.UTF_8).size
         val endByte = startByte + replacementText.toByteArray(Charsets.UTF_8).size
         if (startByte >= endByte) return JSONArray()
